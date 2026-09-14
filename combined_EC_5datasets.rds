@@ -1,0 +1,343 @@
+
+Tumor_Endothelial <- readRDS(
+  "/home/data/t030736/Endothelial/Tumor_Endothelial.rds"
+)
+Tumor_Endothelial
+
+
+class(Tumor_Endothelial)
+
+
+colnames(Tumor_Endothelial@meta.data)
+
+table(
+  Tumor_Endothelial$Disease,
+  useNA = "ifany"
+)
+table(
+  Tumor_Endothelial$Disease.subtype,
+  useNA = "ifany"
+)
+table(
+  Tumor_Endothelial$EC.identity,
+  useNA = "ifany"
+)
+
+# 1. 去掉 IDH mut glioma
+Tumor_Endothelial <- subset(
+  Tumor_Endothelial,
+  subset = Disease.subtype != "IDH mut glioma"
+)
+
+# 2. 统一疾病名称
+Tumor_Endothelial$Disease_new <- dplyr::case_when(
+  Tumor_Endothelial$Disease.subtype == "BrM" ~ "BCBM",
+  Tumor_Endothelial$Disease.subtype == "IDH WT glioblastoma" ~ "GBM",
+  TRUE ~ NA_character_
+)
+
+# 查看当前 reductions
+Reductions(Tumor_Endothelial)
+
+# 删除旧的 PCA / Harmony / UMAP
+Tumor_Endothelial[["pca"]] <- NULL
+Tumor_Endothelial[["harmony"]] <- NULL
+Tumor_Endothelial[["umap"]] <- NULL
+
+
+library(Seurat)
+library(dplyr)
+
+# ==============================
+# 1. 读取五个内皮数据集
+# ==============================
+
+GBM_EC <- readRDS(
+  "/home/data/t030736/Endothelial/IDH_wt_40_Endothelial.rds"
+)
+
+BCBM_EC <- readRDS(
+  "/home/data/t030736/Endothelial/BCBM_Endothelial.rds"
+)
+
+Melanoma_EC <- readRDS(
+  "/home/data/t030736/Endothelial/Melanoma_BM_Endothelial.rds"
+)
+
+NSCLC_EC <- readRDS(
+  "/home/data/t030736/Endothelial/NSCLC_BM_Endothelial.rds"
+)
+
+Tumor_EC <- readRDS(
+  "/home/data/t030736/Endothelial/Tumor_Endothelial.rds"
+)
+
+
+GBM_EC
+BCBM_EC
+Melanoma_EC
+NSCLC_EC
+Tumor_EC
+colnames(GBM_EC@meta.data)
+colnames(BCBM_EC@meta.data)
+colnames(Melanoma_EC@meta.data)
+colnames(NSCLC_EC@meta.data)
+colnames(Tumor_EC@meta.data)
+
+
+
+
+library(Seurat)
+library(Matrix)
+library(dplyr)
+
+# ============================================================
+# 1. 清理 Tumor_Endothelial
+# ============================================================
+
+# 删除 IDH-mut glioma
+Tumor_EC <- subset(
+  Tumor_EC,
+  subset = Disease.subtype != "IDH mut glioma"
+)
+
+# 建立统一 Disease
+Tumor_EC$Disease_new <- case_when(
+  Tumor_EC$Disease.subtype == "BrM" ~ "BCBM",
+  Tumor_EC$Disease.subtype == "IDH WT glioblastoma" ~ "GBM",
+  TRUE ~ NA_character_
+)
+
+# 检查
+table(Tumor_EC$Disease_new, useNA = "ifany")
+
+
+# ============================================================
+# 2. 从 counts layer 重新建立干净的 Seurat 对象
+# ============================================================
+
+GBM_EC_clean <- CreateSeuratObject(
+  counts = LayerData(GBM_EC[["RNA"]], layer = "counts"),
+  meta.data = GBM_EC@meta.data,
+  project = "GBM"
+)
+
+BCBM_EC_clean <- CreateSeuratObject(
+  counts = LayerData(BCBM_EC[["RNA"]], layer = "counts"),
+  meta.data = BCBM_EC@meta.data,
+  project = "BCBM"
+)
+
+Melanoma_EC_clean <- CreateSeuratObject(
+  counts = LayerData(Melanoma_EC[["RNA"]], layer = "counts"),
+  meta.data = Melanoma_EC@meta.data,
+  project = "Melanoma-BM"
+)
+
+NSCLC_EC_clean <- CreateSeuratObject(
+  counts = LayerData(NSCLC_EC[["RNA"]], layer = "counts"),
+  meta.data = NSCLC_EC@meta.data,
+  project = "NSCLC-BM"
+)
+
+Tumor_EC_clean <- CreateSeuratObject(
+  counts = LayerData(Tumor_EC[["RNA"]], layer = "counts"),
+  meta.data = Tumor_EC@meta.data,
+  project = "Tumor-Endothelial"
+)
+
+
+# GBM
+GBM_EC_clean$Disease_new <- "GBM"
+GBM_EC_clean$Dataset <- "GBM_EC"
+
+# BCBM
+BCBM_EC_clean$Disease_new <- "BCBM"
+BCBM_EC_clean$Dataset <- "BCBM_EC"
+
+# Melanoma-BM
+Melanoma_EC_clean$Disease_new <- "Melanoma-BM"
+Melanoma_EC_clean$Dataset <- "Melanoma_BM_EC"
+
+# NSCLC-BM
+NSCLC_EC_clean$Disease_new <- "NSCLC-BM"
+NSCLC_EC_clean$Dataset <- "NSCLC_BM_EC"
+
+# Tumor_Endothelial
+Tumor_EC_clean$Dataset <- "Tumor_EC"
+
+
+# GBM
+GBM_EC_clean$Patient_new <- as.character(
+  GBM_EC_clean$donor_id
+)
+
+# BCBM
+BCBM_EC_clean$Patient_new <- as.character(
+  BCBM_EC_clean$sampleDemuxIDstrict
+)
+
+# Melanoma-BM
+Melanoma_EC_clean$Patient_new <- as.character(
+  Melanoma_EC_clean$patient
+)
+
+# NSCLC-BM
+NSCLC_EC_clean$Patient_new <- as.character(
+  NSCLC_EC_clean$Sample
+)
+
+# Tumor-Endothelial
+Tumor_EC_clean$Patient_new <- as.character(
+  Tumor_EC_clean$Patient
+)
+
+
+GBM_EC_clean$Patient_new <- paste0(
+  "GBM_", GBM_EC_clean$Patient_new
+)
+
+BCBM_EC_clean$Patient_new <- paste0(
+  "BCBM_", BCBM_EC_clean$Patient_new
+)
+
+Melanoma_EC_clean$Patient_new <- paste0(
+  "Melanoma_", Melanoma_EC_clean$Patient_new
+)
+
+NSCLC_EC_clean$Patient_new <- paste0(
+  "NSCLC_", NSCLC_EC_clean$Patient_new
+)
+
+Tumor_EC_clean$Patient_new <- paste0(
+  "Tumor_", Tumor_EC_clean$Patient_new
+)
+
+
+GBM_EC_clean
+BCBM_EC_clean
+Melanoma_EC_clean
+NSCLC_EC_clean
+Tumor_EC_clean
+
+
+table(GBM_EC_clean$Disease_new)
+table(BCBM_EC_clean$Disease_new)
+table(Melanoma_EC_clean$Disease_new)
+table(NSCLC_EC_clean$Disease_new)
+table(Tumor_EC_clean$Disease_new)
+
+
+sum(
+  ncol(GBM_EC_clean),
+  ncol(BCBM_EC_clean),
+  ncol(Melanoma_EC_clean),
+  ncol(NSCLC_EC_clean),
+  ncol(Tumor_EC_clean)
+)
+
+
+
+saveRDS(
+  GBM_EC_clean,
+  "/home/data/t030736/Endothelial/GBM_EC_clean.rds"
+)
+
+saveRDS(
+  BCBM_EC_clean,
+  "/home/data/t030736/Endothelial/BCBM_EC_clean.rds"
+)
+
+saveRDS(
+  Melanoma_EC_clean,
+  "/home/data/t030736/Endothelial/Melanoma_EC_clean.rds"
+)
+
+saveRDS(
+  NSCLC_EC_clean,
+  "/home/data/t030736/Endothelial/NSCLC_EC_clean.rds"
+)
+
+saveRDS(
+  Tumor_EC_clean,
+  "/home/data/t030736/Endothelial/Tumor_EC_clean.rds"
+)
+
+
+library(Seurat)
+library(Matrix)
+library(dplyr)
+
+base_dir <- "/home/data/t030736/Endothelial"
+
+GBM_EC_clean <- readRDS(
+  file.path(base_dir, "GBM_EC_clean.rds")
+)
+
+BCBM_EC_clean <- readRDS(
+  file.path(base_dir, "BCBM_EC_clean.rds")
+)
+
+Melanoma_EC_clean <- readRDS(
+  file.path(base_dir, "Melanoma_EC_clean.rds")
+)
+
+NSCLC_EC_clean <- readRDS(
+  file.path(base_dir, "NSCLC_EC_clean.rds")
+)
+
+Tumor_EC_clean <- readRDS(
+  file.path(base_dir, "Tumor_EC_clean.rds")
+)
+
+cat("GBM:", ncol(GBM_EC_clean), "\n")
+cat("BCBM:", ncol(BCBM_EC_clean), "\n")
+cat("Melanoma-BM:", ncol(Melanoma_EC_clean), "\n")
+cat("NSCLC-BM:", ncol(NSCLC_EC_clean), "\n")
+cat("Tumor_EC:", ncol(Tumor_EC_clean), "\n")
+
+cat(
+  "Total:",
+  ncol(GBM_EC_clean) +
+    ncol(BCBM_EC_clean) +
+    ncol(Melanoma_EC_clean) +
+    ncol(NSCLC_EC_clean) +
+    ncol(Tumor_EC_clean),
+  "\n"
+)
+
+combined_EC <- merge(
+  x = GBM_EC_clean,
+  y = list(
+    BCBM_EC_clean,
+    Melanoma_EC_clean,
+    NSCLC_EC_clean,
+    Tumor_EC_clean
+  ),
+  add.cell.ids = c(
+    "GBM",
+    "BCBM",
+    "Melanoma",
+    "NSCLC",
+    "Tumor"
+  ),
+  project = "Endothelial_5datasets"
+)
+
+table(
+  combined_EC$Disease_new,
+  useNA = "ifany"
+)
+saveRDS(
+  combined_EC,
+  file = "/home/data/t030736/Endothelial/combined_EC_5datasets.rds"
+)
+file.info(
+  "/home/data/t030736/Endothelial/combined_EC_5datasets.rds"
+)
+
+combined_EC
+Layers(combined_EC[["RNA"]])
+table(combined_EC$Disease_new)
+table(combined_EC$Dataset)
+Reductions(combined_EC)
