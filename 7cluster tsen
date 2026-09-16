@@ -1,0 +1,284 @@
+# ============================================================
+# Endothelial Functional Annotation + t-SNE
+# ============================================================
+
+library(Seurat)
+library(ggplot2)
+
+# ============================================================
+# 1. 基本设置
+# ============================================================
+
+DefaultAssay(EC_clean) <- "RNA"
+
+# 保持原始 cluster
+Idents(EC_clean) <- "seurat_clusters"
+
+cat("\n============================================================\n")
+cat("1. ORIGINAL CLUSTERS\n")
+cat("============================================================\n")
+
+print(
+  table(
+    EC_clean$seurat_clusters,
+    useNA = "ifany"
+  )
+)
+
+
+# ============================================================
+# 2. 定义功能注释
+# ============================================================
+
+functional_annotation <- c(
+  "0"  = "Angiogenic EC",
+  "1"  = "IFN-responsive EC",
+  "2"  = "Homeostatic EC",
+  "3"  = "Barrier EC",
+  "4"  = "Inflammatory EC",
+  "5"  = "Angiogenic EC",
+  "6"  = "Angiogenic EC",
+  "7"  = "Barrier EC",
+  "8"  = "Inflammatory EC",
+  "9"  = "Proliferative EC",
+  "10" = "Mural-like EC",
+  "11" = "Angiogenic EC",
+  "12" = "Unresolved EC"
+)
+
+
+# ============================================================
+# 3. 将功能注释写入 metadata
+# ============================================================
+
+EC_clean$Functional_type <- unname(
+  functional_annotation[
+    as.character(EC_clean$seurat_clusters)
+  ]
+)
+
+
+# ============================================================
+# 4. 设置功能类型顺序
+# ============================================================
+
+EC_clean$Functional_type <- factor(
+  EC_clean$Functional_type,
+  levels = c(
+    "Angiogenic EC",
+    "IFN-responsive EC",
+    "Homeostatic EC",
+    "Barrier EC",
+    "Inflammatory EC",
+    "Proliferative EC",
+    "Mural-like EC",
+    "Unresolved EC"
+  )
+)
+
+
+
+
+
+
+
+
+# ============================================================
+# Remove Cluster 12 and save functional annotations
+# ============================================================
+
+library(Seurat)
+
+# ============================================================
+# 1. 检查当前 Cluster 分布
+# ============================================================
+
+cat("\n================ BEFORE REMOVAL ================\n")
+
+print(
+  table(
+    EC_clean$seurat_clusters,
+    useNA = "ifany"
+  )
+)
+
+
+# ============================================================
+# 2. 删除 Cluster 12
+# ============================================================
+
+EC_functional <- subset(
+  EC_clean,
+  idents = setdiff(
+    levels(Idents(EC_clean)),
+    "12"
+  )
+)
+
+
+# ============================================================
+# 3. 检查删除结果
+# ============================================================
+
+cat("\n================ AFTER REMOVAL ================\n")
+
+print(
+  table(
+    EC_functional$seurat_clusters,
+    useNA = "ifany"
+  )
+)
+
+cat("\nDimension:\n")
+print(dim(EC_functional))
+
+
+# ============================================================
+# 4. 检查 Functional_type
+# ============================================================
+
+cat("\n================ FUNCTIONAL ANNOTATION ================\n")
+
+print(
+  table(
+    EC_functional$Functional_type,
+    useNA = "ifany"
+  )
+)
+
+
+# ============================================================
+# 5. 清理 Functional_type 的 unused level
+# ============================================================
+
+EC_functional$Functional_type <- droplevels(
+  EC_functional$Functional_type
+)
+
+# 同时清理 seurat_clusters 的 unused level
+EC_functional$seurat_clusters <- droplevels(
+  EC_functional$seurat_clusters
+)
+
+
+# ============================================================
+# 6. 检查最终 Functional annotation
+# ============================================================
+
+cat("\n================ FINAL FUNCTIONAL TYPES ================\n")
+
+print(
+  table(
+    EC_functional$Functional_type,
+    useNA = "ifany"
+  )
+)
+
+
+# ============================================================
+# 7. 保存新的 Seurat object
+# ============================================================
+
+output_file <- paste0(
+  "/home/data/t030736/Endothelial/",
+  "EC_functional_annotated_noCluster12.rds"
+)
+
+saveRDS(
+  EC_functional,
+  output_file
+)
+
+
+
+# ============================================================
+# Cell counts of functional annotations
+# ============================================================
+
+# 1. 按功能类型统计细胞数
+functional_counts <- as.data.frame(
+  table(EC_functional$Functional_type)
+)
+
+colnames(functional_counts) <- c(
+  "Functional_type",
+  "Cell_count"
+)
+
+# 2. 计算百分比
+functional_counts$Percentage <- round(
+  functional_counts$Cell_count /
+    sum(functional_counts$Cell_count) * 100,
+  2
+)
+
+# 3. 输出
+cat("\n================ FUNCTIONAL CELL COUNTS ================\n")
+
+print(
+  functional_counts,
+  row.names = FALSE
+)
+
+# 4. 总细胞数
+cat("\nTotal cells:", sum(functional_counts$Cell_count), "\n")
+
+
+
+library(Seurat)
+library(SCP)
+
+EC_functional <- readRDS(
+  "/home/data/t030736/Endothelial/EC_functional_annotated_noCluster12.rds"
+)
+
+EC_functional <- RunTSNE(
+  EC_functional,
+  reduction = "harmony",
+  dims = 1:15,
+  reduction.name = "tsne"
+)
+
+CellDimPlot(
+  EC_functional,
+  group.by = "Functional_type",
+  reduction = "tsne"
+)
+
+CellDimPlot(
+  EC_functional,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  theme_use = "theme_blank"
+)
+
+
+
+p <- CellDimPlot(
+  EC_functional,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  theme_use = "theme_blank"
+)
+
+p_tsne_functional <- p +
+  scale_color_manual(
+    values = c(
+      "Angiogenic EC"     = "#FF86B3",
+      "IFN-responsive EC" = "#9DCBED",
+      "Homeostatic EC"    = "#BFE7B6",
+      "Barrier EC"        = "#C7B5E8",
+      "Inflammatory EC"   = "#F2A77E",
+      "Proliferative EC"  = "#F1C97B",
+      "Mural-like EC"     = "#4FC3F7"
+    )
+  )
+
+p_tsne_functional
+
+ggsave(
+  "/home/data/t030736/Figure_2B.pdf",
+  p_tsne_functional,
+  width = 8,
+  height = 7
+)
