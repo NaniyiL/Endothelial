@@ -1,0 +1,929 @@
+# ============================================================
+# 1. 读取已经注释好的 EC 数据
+# ============================================================
+
+library(Seurat)
+library(SCP)
+library(dplyr)
+
+ec_file <- "/home/data/t030736/Endothelial/EC_functional_annotated_noCluster12.rds"
+
+EC_functional_KNN <- readRDS(ec_file)
+
+# ============================================================
+# 2. 基本信息
+# ============================================================
+
+cat("\n================ DIMENSION ================\n")
+print(dim(EC_functional_KNN))
+
+cat("\n================ ASSAYS ================\n")
+print(Assays(EC_functional_KNN))
+
+cat("\n================ REDUCTIONS ================\n")
+print(Reductions(EC_functional_KNN))
+
+cat("\n================ METADATA ================\n")
+print(colnames(EC_functional_KNN@meta.data))
+
+# ============================================================
+# 3. 查看目前的 Functional_type
+# ============================================================
+
+cat("\n================ FUNCTIONAL TYPE ================\n")
+
+if ("Functional_type" %in% colnames(EC_functional_KNN@meta.data)) {
+  
+  print(
+    table(
+      EC_functional_KNN$Functional_type,
+      useNA = "ifany"
+    )
+  )
+  
+} else {
+  
+  cat("Functional_type 不存在\n")
+}
+
+# ============================================================
+# 4. 查看当前 cluster
+# ============================================================
+
+cat("\n================ SEURAT CLUSTERS ================\n")
+
+if ("seurat_clusters" %in% colnames(EC_functional_KNN@meta.data)) {
+  
+  print(
+    table(
+      EC_functional_KNN$seurat_clusters,
+      useNA = "ifany"
+    )
+  )
+  
+}
+
+# ============================================================
+# 5. 查看 celltype
+# ============================================================
+
+cat("\n================ CELLTYPE ================\n")
+
+if ("celltype" %in% colnames(EC_functional_KNN@meta.data)) {
+  
+  print(
+    table(
+      EC_functional_KNN$celltype,
+      useNA = "ifany"
+    )
+  )
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 读取 Endothelial reference
+# ============================================================
+
+library(Seurat)
+library(dplyr)
+
+reference_file <- "/home/data/t030736/Endothelial/Endothelial.rds"
+
+EC_reference <- readRDS(reference_file)
+
+# ============================================================
+# 1. 基本信息
+# ============================================================
+
+cat("\n================ DIMENSION ================\n")
+print(dim(EC_reference))
+
+cat("\n================ ASSAYS ================\n")
+print(Assays(EC_reference))
+
+cat("\n================ REDUCTIONS ================\n")
+print(Reductions(EC_reference))
+
+cat("\n================ METADATA COLUMNS ================\n")
+print(colnames(EC_reference@meta.data))
+
+# ============================================================
+# 2. 查看所有 metadata 中可能与注释有关的列
+# ============================================================
+
+cat("\n================ ANNOTATION-RELATED COLUMNS ================\n")
+
+annotation_cols <- grep(
+  pattern = "cell|type|EC|endo|Endo|arter|Arter|ven|Ven|cap|Cap|lymph|Lymph|identity|annot",
+  x = colnames(EC_reference@meta.data),
+  value = TRUE,
+  ignore.case = TRUE
+)
+
+print(annotation_cols)
+
+# ============================================================
+# 3. 查看这些注释列的具体内容
+# ============================================================
+
+cat("\n================ ANNOTATION TABLES ================\n")
+
+for (x in annotation_cols) {
+  
+  cat("\n----------------------------------------\n")
+  cat("COLUMN:", x, "\n")
+  cat("----------------------------------------\n")
+  
+  print(
+    table(
+      EC_reference@meta.data[[x]],
+      useNA = "ifany"
+    )
+  )
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 重新构建 Seurat v5 兼容版 RunKNNPredict
+# ============================================================
+
+library(Seurat)
+library(SeuratObject)
+library(SCP)
+
+
+# ------------------------------------------------------------
+# 1. 原始函数
+# ------------------------------------------------------------
+
+RunKNNPredict_v5 <- SCP::RunKNNPredict
+
+
+# ------------------------------------------------------------
+# 2. 递归替换 slot 参数名
+# ------------------------------------------------------------
+
+replace_slot_with_layer <- function(x) {
+  
+  if (is.call(x)) {
+    
+    # 当前表达式的函数名
+    fn <- if (length(x) >= 1) {
+      tryCatch(
+        as.character(x[[1]])[1],
+        error = function(e) ""
+      )
+    } else {
+      ""
+    }
+    
+    # --------------------------------------------------------
+    # GetAssayData
+    # --------------------------------------------------------
+    
+    if (identical(fn, "GetAssayData")) {
+      
+      nms <- names(x)
+      
+      if (!is.null(nms)) {
+        
+        idx <- which(nms == "slot")
+        
+        if (length(idx) > 0) {
+          nms[idx] <- "layer"
+          names(x) <- nms
+        }
+      }
+    }
+    
+    # --------------------------------------------------------
+    # AverageExpression
+    # --------------------------------------------------------
+    
+    if (identical(fn, "AverageExpression")) {
+      
+      nms <- names(x)
+      
+      if (!is.null(nms)) {
+        
+        idx <- which(nms == "slot")
+        
+        if (length(idx) > 0) {
+          nms[idx] <- "layer"
+          names(x) <- nms
+        }
+      }
+    }
+    
+    # --------------------------------------------------------
+    # 继续递归
+    # --------------------------------------------------------
+    
+    for (i in seq_along(x)) {
+      x[[i]] <- replace_slot_with_layer(x[[i]])
+    }
+  }
+  
+  x
+}
+
+
+# ------------------------------------------------------------
+# 3. 修改函数体
+# ------------------------------------------------------------
+
+body(RunKNNPredict_v5) <- replace_slot_with_layer(
+  body(RunKNNPredict_v5)
+)
+
+
+# ============================================================
+# 4. 文本检查
+# ============================================================
+
+body_text <- paste(
+  deparse(body(RunKNNPredict_v5)),
+  collapse = "\n"
+)
+
+cat("\n================ GetAssayData / AverageExpression ================\n")
+
+lines_check <- grep(
+  "GetAssayData|AverageExpression",
+  strsplit(body_text, "\n")[[1]],
+  value = TRUE
+)
+
+cat(
+  lines_check,
+  sep = "\n"
+)
+
+
+# ============================================================
+# 5. 判断是否仍然存在 slot
+# ============================================================
+
+cat("\n\n================ SLOT CHECK ================\n")
+
+cat(
+  "函数体中是否仍存在 'slot = \"data\"'：",
+  grepl(
+    'slot\\s*=\\s*["\']data["\']',
+    body_text,
+    perl = TRUE
+  ),
+  "\n"
+)
+
+cat(
+  "函数体中是否存在 'layer = \"data\"'：",
+  grepl(
+    'layer\\s*=\\s*["\']data["\']',
+    body_text,
+    perl = TRUE
+  ),
+  "\n"
+)
+
+
+
+
+# ============================================================
+# 6. 重新读取 Query 和 Reference
+# ============================================================
+
+EC_functional_KNN <- readRDS(
+  "/home/data/t030736/Endothelial/EC_functional_annotated_noCluster12.rds"
+)
+
+EC_reference <- readRDS(
+  "/home/data/t030736/Endothelial/Endothelial.rds"
+)
+
+
+# ============================================================
+# 7. 设置 RNA assay
+# ============================================================
+
+DefaultAssay(EC_functional_KNN) <- "RNA"
+DefaultAssay(EC_reference) <- "RNA"
+
+
+# ============================================================
+# 8. 确认 Reference 标签
+# ============================================================
+
+cat("\n================ Reference EC.identity ================\n")
+
+print(
+  table(
+    EC_reference$EC.identity,
+    useNA = "ifany"
+  )
+)
+
+
+# ============================================================
+# 9. 运行 KNN
+# ============================================================
+
+EC_functional_KNN <- RunKNNPredict_v5(
+  srt_query = EC_functional_KNN,
+  srt_ref = EC_reference,
+  ref_group = "EC.identity",
+  filter_lowfreq = 20
+)
+
+cat("\n================ KNN FINISHED ================\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+knn_lines <- deparse(body(RunKNNPredict_v5))
+
+cat(
+  paste(
+    seq_along(knn_lines),
+    knn_lines,
+    sep = ": "
+  ),
+  sep = "\n"
+)
+
+
+# 删除导致报错的 @tools 写入
+knn_lines <- deparse(body(RunKNNPredict_v5))
+
+knn_lines <- knn_lines[
+  !grepl(
+    "srt_query@tools\\[\\[paste0\\(prefix, \"_classification\"\\)\\]\\] <- result",
+    knn_lines
+  )
+]
+
+body(RunKNNPredict_v5) <- parse(
+  text = paste(knn_lines, collapse = "\n")
+)[[1]]
+
+# 重新运行
+EC_functional_KNN <- RunKNNPredict_v5(
+  srt_query = EC_functional_KNN,
+  srt_ref = EC_reference,
+  ref_group = "EC.identity",
+  filter_lowfreq = 20
+)
+
+table(
+  EC_functional_KNN$KNNPredict_classification,
+  useNA = "ifany"
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# EC KNN Reference Annotation
+# Functional_type × EC.identity
+# ============================================================
+
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(SCP)
+
+# ============================================================
+# 1. 检查 KNN 结果
+# ============================================================
+
+cat("\n================ KNN LABELS ================\n")
+
+knn_counts <- table(
+  EC_functional_KNN$KNNPredict_classification,
+  useNA = "ifany"
+)
+
+print(knn_counts)
+
+cat("\nTotal cells:", ncol(EC_functional_KNN), "\n")
+
+
+# ============================================================
+# 2. Functional_type × KNN EC.identity
+# ============================================================
+
+knn_table <- table(
+  EC_functional_KNN$Functional_type,
+  EC_functional_KNN$KNNPredict_classification,
+  useNA = "ifany"
+)
+
+cat("\n================ CELL COUNT ================\n")
+print(knn_table)
+
+
+# ============================================================
+# 3. 行百分比
+# 每个 Functional_type 内部，各 EC.identity 占比
+# ============================================================
+
+knn_prop_row <- prop.table(
+  knn_table,
+  margin = 1
+) * 100
+
+cat("\n================ ROW % ================\n")
+print(
+  round(knn_prop_row, 2)
+)
+
+
+# ============================================================
+# 4. 列百分比
+# 每个 EC.identity 内部，各 Functional_type 占比
+# ============================================================
+
+knn_prop_col <- prop.table(
+  knn_table,
+  margin = 2
+) * 100
+
+cat("\n================ COLUMN % ================\n")
+print(
+  round(knn_prop_col, 2)
+)
+
+# ============================================================
+# KNN identity UMAP
+# ============================================================
+p1 <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "KNNPredict_classification",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+p1
+
+
+# ============================================================
+# Functional_type：原来的功能注释 tSNE
+# ============================================================
+
+p_functional_tsne <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+p_functional_tsne
+
+
+
+# ============================================================
+# Figure 2C
+# KNN-predicted endothelial identity tSNE
+# ============================================================
+
+p1 <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "KNNPredict_classification",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+p1
+
+# 保存 Figure 2C
+pdf(
+  "/home/data/t030736/Endothelial/Figure_2C.pdf",
+  width = 8,
+  height = 7
+)
+
+print(p1)
+
+dev.off()
+
+# ============================================================
+# 1. Functional type cell number
+# ============================================================
+
+table(EC_functional_KNN$Functional_type)
+
+# ============================================================
+# 2. Functional annotation tSNE
+# ============================================================
+
+p_functional_tsne <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+p_functional_tsne
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 1. Cluster × Functional_type
+# ============================================================
+
+table(
+  EC_functional_KNN$seurat_clusters,
+  EC_functional_KNN$Functional_type
+)
+cluster_annotation <- unique(
+  EC_functional_KNN@meta.data[
+    c("seurat_clusters", "Functional_type")
+  ]
+)
+
+cluster_annotation <- cluster_annotation[
+  order(as.numeric(as.character(cluster_annotation$seurat_clusters))),
+]
+
+cluster_annotation
+
+# ============================================================
+# 2. Find markers for each cluster
+# ============================================================
+
+Idents(EC_functional_KNN) <- "seurat_clusters"
+
+markers_cluster <- FindAllMarkers(
+  EC_functional_KNN,
+  only.pos = TRUE,
+  min.pct = 0.25,
+  logfc.threshold = 0.25
+)
+
+
+
+
+# ============================================================
+# 3. Top 20 markers per cluster
+# ============================================================
+
+top20_markers <- markers_cluster %>%
+  dplyr::group_by(cluster) %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC), .by_group = TRUE) %>%
+  dplyr::slice_head(n = 20)
+
+top20_markers
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cluster0_markers <- markers_cluster %>%
+  dplyr::filter(cluster == "0") %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+  dplyr::select(
+    gene,
+    avg_log2FC,
+    pct.1,
+    pct.2
+  )
+
+cluster0_markers[1:50, ]
+
+
+cluster2_markers <- markers_cluster %>%
+  dplyr::filter(cluster == "2") %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+  dplyr::select(
+    gene,
+    avg_log2FC,
+    pct.1,
+    pct.2
+  )
+
+cluster2_markers[1:50, ]
+
+
+DotPlot(
+  EC_functional_KNN,
+  features = c(
+    # Endothelial
+    "PECAM1", "VWF", "KDR", "ESAM", "EMCN", "CDH5", "ENG",
+    
+    # Myeloid
+    "PTPRC", "LYZ", "S100A8", "S100A9", "FCER1G", "TYROBP",
+    
+    # T/NK
+    "CD3D", "CD3E", "TRBC1", "NKG7",
+    
+    # B cell
+    "CD79A", "MS4A1", "CD37", "CD74", "HLA-DRA",
+    
+    # Inflammatory EC
+    "VCAM1", "ICAM1", "SELE", "SELP", "ACKR1",
+    
+    # Homeostatic / vascular
+    "ECSCR", "KIAA1462", "TMEM2", "SEPP1", "CTGF"
+  ),
+  group.by = "seurat_clusters"
+) +
+  RotatedAxis()
+
+
+
+cluster5_markers <- markers_cluster %>%
+  dplyr::filter(cluster == "5") %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+  dplyr::select(
+    gene,
+    avg_log2FC,
+    pct.1,
+    pct.2
+  )
+
+cluster5_markers[1:50, ]
+
+
+# ============================================================
+# Cluster 5 marker check
+# ============================================================
+
+genes_check <- c(
+  # EC core
+  "PECAM1", "VWF", "KDR", "ESAM", "EMCN", "CDH5", "ENG",
+  
+  # Angiogenic
+  "ESM1", "APLN", "APLNR", "ADM", "ANGPT2",
+  "PGF", "CXCR4", "KDR",
+  
+  # Arterial
+  "GJA5", "GJA4", "EFNB2", "SOX17", "DLL4",
+  "SEMA3G", "HEY1",
+  
+  # Capillary
+  "CA4", "RGCC", "EDNRB", "BTNL9", "AQP1",
+  "PLVAP", "EMCN",
+  
+  # Venous
+  "ACKR1", "SELP", "SELE", "VCAM1", "NR2F2",
+  
+  # Barrier
+  "MFSD2A", "CLDN5", "OCLN", "ABCB1", "ABCG2",
+  
+  # Mural
+  "PDGFRB", "RGS5", "CSPG4", "MCAM", "COX4I2",
+  
+  # Proliferation
+  "MKI67", "TOP2A", "UBE2C"
+)
+
+genes_check <- intersect(
+  genes_check,
+  rownames(EC_functional_KNN)
+)
+
+DotPlot(
+  EC_functional_KNN,
+  features = genes_check,
+  group.by = "seurat_clusters"
+) +
+  RotatedAxis()
+
+
+DotPlot(
+  EC_functional_KNN,
+  features = c(
+    "ABCB1",
+    "ABCG2",
+    "MFSD2A",
+    "CLDN5",
+    "OCLN",
+    "TJP1",
+    "SLC2A1",
+    "KDR",
+    "EMCN",
+    "CA4",
+    "RGCC",
+    "PLVAP",
+    "ESM1",
+    "APLN",
+    "ANGPT2"
+  ),
+  group.by = "seurat_clusters"
+) +
+  RotatedAxis()
+
+
+
+
+
+cluster6_markers <- markers_cluster %>%
+  dplyr::filter(cluster == "6") %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+  dplyr::select(
+    gene,
+    avg_log2FC,
+    pct.1,
+    pct.2
+  )
+
+cluster6_markers[1:50, ] 
+
+
+
+table(
+  EC_functional_KNN$KNNPredict_classification[
+    EC_functional_KNN$seurat_clusters == "6"
+  ]
+)
+prop.table(
+  table(
+    EC_functional_KNN$KNNPredict_classification[
+      EC_functional_KNN$seurat_clusters == "6"
+    ]
+  )
+) * 100
+
+
+
+
+
+cluster11_markers <- markers_cluster %>%
+  dplyr::filter(cluster == "11") %>%
+  dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+  dplyr::select(
+    gene,
+    avg_log2FC,
+    pct.1,
+    pct.2
+  )
+
+cluster11_markers[1:50, ]
+
+
+
+# ============================================================
+# Functional annotation tSNE
+# ============================================================
+
+p_functional_tsne <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+p_functional_tsne
+
+
+
+
+# ============================================================
+# 1. 先正常绘制，不指定颜色
+# ============================================================
+
+p_functional_tsne <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+# ============================================================
+# 2. 获取 CellDimPlot 实际使用的 fill levels
+# ============================================================
+
+fill_levels <- unique(
+  ggplot_build(p_functional_tsne)$data[[1]]$fill
+)
+
+fill_levels
+
+
+# ============================================================
+# Functional_type tSNE
+# 先正常绘图，不指定颜色
+# ============================================================
+
+p_functional_tsne <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+p_functional_tsne
+
+levels(factor(EC_functional_KNN$Functional_type))
+# ============================================================
+# 蓝色 + 紫色 + 粉色
+# ============================================================
+
+functional_colors <- c(
+  "Angiogenic EC"      = "#A8CDE3",
+  "IFN-responsive EC"  = "#5B9BC5",
+  "Homeostatic EC"     = "#B5A5D5",
+  "Barrier EC"         = "#83B8D4",
+  "Inflammatory EC"    = "#D5A0C0",
+  "Proliferative EC"   = "#9B85BE",
+  "Mural-like EC"      = "#E58F9F"
+)
+
+p_functional_tsne <- p_functional_tsne +
+  scale_color_manual(
+    values = functional_colors
+  )
+
+p_functional_tsne
