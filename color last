@@ -1,0 +1,64 @@
+# ============================================================
+# 1. Functional_type tSNE
+#    使用当前 EC_functional_KNN 中已经保存的 tsne
+# ============================================================
+
+# ============================================================
+# 0. 加载包
+# ============================================================
+
+library(Seurat)
+library(SCP)
+library(ggplot2)
+
+# ============================================================
+# 1. Functional_type tSNE
+#    使用功能聚类对应的 tSNE
+# ============================================================
+
+p_functional_tsne <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "Functional_type",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+)
+
+p_functional_tsne
+
+
+# ============================================================
+# 2. Functional_type 配色
+# ============================================================
+functional_colors <- c(
+  "Angiogenic EC"      = "#52B3FF",  # 蓝
+  "IFN-responsive EC"  = "#9EC5EC",  # 紫
+  "Homeostatic EC"     = "#CAE691",  # 绿
+  "Barrier EC"         = "#FF7A9A",  # 橙
+  "Inflammatory EC"    = "#FFE576",  # 粉红
+  "Proliferative EC"   = "#FDC1D4",  # 洋红
+  "Mural-like EC"      = "#DBC8ED"   # 棕
+)
+
+p_functional_tsne <- p_functional_tsne +
+  scale_color_manual(
+    values = functional_colors
+  )
+
+p_functional_tsne
+
+
+# ============================================================
+# 保存 Figure 2B
+# ============================================================
+
+pdf(
+  "/home/data/t030736/Endothelial/Figure_2B.pdf",
+  width = 7,
+  height = 6
+)
+
+print(p_functional_tsne)
+
+dev.off()
