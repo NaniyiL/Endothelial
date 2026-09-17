@@ -1,0 +1,248 @@
+
+
+# ============================================================
+# Functional EC Score tSNE
+# 直接使用已经存在的 tsne，不重新计算
+# ============================================================
+
+library(Seurat)
+library(SCP)
+library(ggplot2)
+library(scales)
+
+# ============================================================
+# 1. 确认使用已有 tsne
+# ============================================================
+
+Reductions(EC_functional_KNN)
+
+# ============================================================
+# 2. 功能评分名称
+# ============================================================
+
+score_features <- c(
+  "Angiogenic_EC_Score1",
+  "IFN_responsive_EC_Score1",
+  "Homeostatic_EC_Score1",
+  "Barrier_EC_Score1",
+  "Inflammatory_EC_Score1",
+  "Proliferative_EC_Score1",
+  "Mural_like_EC_Score1"
+)
+
+# ============================================================
+# 3. 统一的评分颜色
+# ============================================================
+
+score_colors <- c(
+  "#C8DDEA",
+  "#49A9F5"
+)
+
+# ============================================================
+# 4. Angiogenic EC Score
+# ============================================================
+
+p_angiogenic_score <- FeaturePlot(
+  EC_functional_KNN,
+  features = "Angiogenic_EC_Score1",
+  reduction = "tsne"
+) +
+  scale_color_gradientn(
+    colours = score_colors,
+    limits = c(0, 0.6),
+    oob = scales::squish
+  ) +
+  theme_void()
+
+p_angiogenic_score
+
+
+# ============================================================
+# 5. IFN-responsive EC Score
+# ============================================================
+
+p_IFN_score <- FeaturePlot(
+  EC_functional_KNN,
+  features = "IFN_responsive_EC_Score1",
+  reduction = "tsne"
+) +
+  scale_color_gradientn(
+    colours = score_colors,
+    limits = c(0, 0.4),
+    oob = scales::squish
+  ) +
+  theme_void()
+
+p_IFN_score
+
+# ============================================================
+# 6. Homeostatic EC Score
+# ============================================================
+
+p_Homeostatic_score <- FeaturePlot(
+  EC_functional_KNN,
+  features = "Homeostatic_EC_Score1",
+  reduction = "tsne"
+) +
+  scale_color_gradientn(
+    colours = score_colors,
+    limits = c(0, 0.6),
+    oob = scales::squish
+  ) +
+  theme_void()
+
+p_Homeostatic_score
+
+
+# ============================================================
+# 7. Barrier EC Score
+# ============================================================
+
+p_Barrier_score <- FeaturePlot(
+  EC_functional_KNN,
+  features = "Barrier_EC_Score1",
+  reduction = "tsne"
+) +
+  scale_color_gradientn(
+    colours = score_colors,
+    limits = c(0, 1),
+    oob = scales::squish
+  ) +
+  theme_void()
+
+p_Barrier_score
+
+
+# ============================================================
+# 8. Inflammatory EC Score
+# ============================================================
+
+p_Inflammatory_score <- FeaturePlot(
+  EC_functional_KNN,
+  features = "Inflammatory_EC_Score1",
+  reduction = "tsne"
+) +
+  scale_color_gradientn(
+    colours = score_colors,
+    limits = c(0, 0.6),
+    oob = scales::squish
+  ) +
+  theme_void()
+
+p_Inflammatory_score
+
+
+# ============================================================
+# 9. Proliferative EC Score
+# ============================================================
+
+p_Proliferative_score <- FeaturePlot(
+  EC_functional_KNN,
+  features = "Proliferative_EC_Score1",
+  reduction = "tsne"
+) +
+  scale_color_gradientn(
+    colours = score_colors,
+    limits = c(0, 0.6),
+    oob = scales::squish
+  ) +
+  theme_void()
+
+p_Proliferative_score
+
+
+# ============================================================
+# 10. Mural-like EC Score
+# ============================================================
+
+p_Mural_like_score <- FeaturePlot(
+  EC_functional_KNN,
+  features = "Mural_like_EC_Score1",
+  reduction = "tsne"
+) +
+  scale_color_gradientn(
+    colours = score_colors,
+    limits = c(0, 0.6),
+    oob = scales::squish
+  ) +
+  theme_void()
+
+p_Mural_like_score
+
+
+# ============================================================
+# 批量保存已经画好的 7 张图
+# ============================================================
+dir.create(
+  "/home/data/t030736/Endothelial/Functional_Score_tSNE",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+# ============================================================
+# 批量保存已经生成的 7 张 Functional Score tSNE
+# ============================================================
+
+out_dir <- "/home/data/t030736/Endothelial/Functional_Score_tSNE"
+
+pdf(
+  file.path(out_dir, "Angiogenic_EC_Score_tSNE.pdf"),
+  width = 7,
+  height = 6
+)
+print(p_angiogenic_score)
+dev.off()
+
+
+pdf(
+  file.path(out_dir, "IFN_responsive_EC_Score_tSNE.pdf"),
+  width = 7,
+  height = 6
+)
+print(p_IFN_score)
+dev.off()
+
+
+pdf(
+  file.path(out_dir, "Homeostatic_EC_Score_tSNE.pdf"),
+  width = 7,
+  height = 6
+)
+print(p_Homeostatic_score)
+dev.off()
+
+
+pdf(
+  file.path(out_dir, "Barrier_EC_Score_tSNE.pdf"),
+  width = 7,
+  height = 6
+)
+print(p_Barrier_score)
+dev.off()
+
+
+pdf(
+  file.path(out_dir, "Inflammatory_EC_Score_tSNE.pdf"),
+  width = 7,
+  height = 6
+)
+print(p_Inflammatory_score)
+dev.off()
+
+
+pdf(
+  file.path(out_dir, "Proliferative_EC_Score_tSNE.pdf"),
+  width = 7,
+  height = 6
+)
+print(p_Proliferative_score)
+dev.off()
+
+
+pdf(
+  file.path(out_dir, "Mural_like_EC_Score_tSNE.pdf"),
+  width = 7,
+  height = 6
+)
+print(p_Mural_like_score)
+dev.off()
