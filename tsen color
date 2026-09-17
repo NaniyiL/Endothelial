@@ -1,0 +1,19 @@
+# ============================================================
+# 2. Functional_type 配色
+# ============================================================
+functional_colors <- c(
+  "Angiogenic EC"      = "#52B3FF",  # 蓝
+  "IFN-responsive EC"  = "#9EC5EC",  # 紫
+  "Homeostatic EC"     = "#FFE576",  # 绿
+  "Barrier EC"         = "#F8F39C",  # 橙
+  "Inflammatory EC"    = "#FF7A9A",  # 粉红
+  "Proliferative EC"   = "#FDC1D4",  # 洋红
+  "Mural-like EC"      = "#DBC8ED"   # 棕
+)
+
+p_functional_tsne <- p_functional_tsne +
+  scale_color_manual(
+    values = functional_colors
+  )
+
+p_functional_tsne
