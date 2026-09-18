@@ -1,0 +1,227 @@
+EC_functional <- readRDS(
+  "/home/data/t030736/Endothelial/EC_functional_annotated_noCluster12.rds"
+)
+# ============================================================
+# 1. 查看 Disease 信息
+# ============================================================
+
+colnames(EC_functional@meta.data)
+
+table(
+  EC_functional$Disease,
+  useNA = "ifany"
+)
+
+table(
+  EC_functional$Functional_type,
+  useNA = "ifany"
+)
+
+EC_functional_KNN$Vascular_type <- dplyr::recode(
+  EC_functional_KNN$KNNPredict_classification,
+  
+  "Capillaries"   = "Capillary EC",
+  "Veins"         = "Venous EC",
+  "Angiogenic"    = "Angiogenic EC",
+  "Proliferative" = "Proliferative EC",
+  "Interferon"    = "IFN-responsive EC",
+  "Arteries 1"    = "Arterial EC 1",
+  "Arteries 2"    = "Arterial EC 2"
+)
+
+
+# ============================================================
+# 3. 检查
+# ============================================================
+
+table(
+  EC_functional_KNN$Vascular_type,
+  useNA = "ifany"
+)
+
+
+# ============================================================
+# 4. Vascular type 配色
+# ============================================================
+
+vascular_colors <- c(
+  "Angiogenic EC"    = "#52B3FF",
+  "IFN-responsive EC" = "#9EC5EC",
+  "Capillary EC"     = "#CAE691",
+  "Venous EC"        = "#FF7A9A",
+  "Proliferative EC" = "#FFE576",
+  "Arterial EC 1"    = "#FDBAD0",
+  "Arterial EC 2"    = "#C8B5E7"
+)
+
+p_Vascular_tsne <- CellDimPlot(
+  EC_functional_KNN,
+  group.by = "Vascular_type",
+  reduction = "tsne",
+  label = TRUE,
+  theme_use = "theme_blank",
+  pt.size = 1
+) +
+  scale_color_manual(
+    values = vascular_colors
+  ) +
+  scale_fill_manual(
+    values = vascular_colors
+  )
+
+p_Vascular_tsne
+
+ggsave(
+  "/home/data/t030736/Endothelial/Figure_2B.pdf",
+  p_Vascular_tsne,
+  width = 8,
+  height = 7
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# Vascular EC 各 Disease 细胞比例
+# ============================================================
+
+library(dplyr)
+library(ggplot2)
+library(ggalluvial)
+
+# 1. 计算比例
+vascular_prop <- EC_functional_KNN@meta.data %>%
+  filter(
+    !is.na(Disease),
+    !is.na(Vascular_type)
+  ) %>%
+  count(
+    Disease,
+    Vascular_type,
+    name = "n"
+  ) %>%
+  group_by(Disease) %>%
+  mutate(
+    prop = n / sum(n) * 100
+  ) %>%
+  ungroup()
+
+
+# 2. Disease 顺序
+vascular_prop$Disease <- factor(
+  vascular_prop$Disease,
+  levels = c(
+    "GBM",
+    "BCBM",
+    "NSCLC-BM",
+    "Melanoma-BM",
+    "CRC-BM",
+    "ESCC-BM",
+    "HCC-BM",
+    "Sarcoma-BM",
+    "Other-BM"
+  )
+)
+
+
+# 3. Vascular type 顺序
+vascular_prop$Vascular_type <- factor(
+  vascular_prop$Vascular_type,
+  levels = c(
+    "Angiogenic EC",
+    "IFN-responsive EC",
+    "Capillary EC",
+    "Venous EC",
+    "Proliferative EC",
+    "Arterial EC 1",
+    "Arterial EC 2"
+  )
+)
+
+
+# ============================================================
+# 4. 绘制比例图
+# ============================================================
+
+p_Vascular_proportion <- ggplot(
+  vascular_prop,
+  aes(
+    x = Disease,
+    y = prop,
+    fill = Vascular_type,
+    alluvium = Vascular_type,
+    stratum = Vascular_type
+  )
+) +
+  geom_col(
+    position = "stack",
+    width = 0.8
+  ) +
+  geom_alluvium(
+    aes(stratum = Vascular_type),
+    width = 0.5,
+    alpha = 0.2,
+    color = "white",
+    linewidth = 0.8,
+    curve_type = "sigmoid"
+  ) +
+  geom_stratum(
+    width = 0.8,
+    alpha = 0.7,
+    color = "white"
+  ) +
+  scale_fill_manual(
+    values = vascular_colors
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, 100)
+  ) +
+  labs(
+    x = NULL,
+    y = "Percentage of cells",
+    title = NULL,
+    fill = NULL
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 14,
+      color = "black"
+    ),
+    axis.text.y = element_text(
+      size = 14,
+      color = "black"
+    ),
+    axis.title.y = element_text(
+      size = 18
+    ),
+    legend.text = element_text(
+      size = 12
+    ),
+    legend.title = element_text(
+      size = 14
+    )
+  )
+
+p_Vascular_proportion
+
+
+ggsave(
+  "/home/data/t030736/Endothelial/EC_Vascular_Disease_Proportion.pdf",
+  p_Vascular_proportion,
+  width = 12,
+  height = 7
+)
