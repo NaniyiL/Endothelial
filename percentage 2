@@ -1,0 +1,497 @@
+# ============================================================
+# 1. 查看 Disease 信息
+# ============================================================
+
+colnames(EC_functional@meta.data)
+
+table(
+  EC_functional$Disease,
+  useNA = "ifany"
+)
+
+table(
+  EC_functional$Functional_type,
+  useNA = "ifany"
+)
+
+
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(ggalluvial)
+
+# ============================================================
+# 1. Functional type 配色
+# ============================================================
+
+functional_colors <- c(
+  "Angiogenic EC"     = "#52B3FF",
+  "IFN-responsive EC" = "#9EC5EC",
+  "Homeostatic EC"    = "#CAE691",
+  "Barrier EC"        = "#FF7A9A",
+  "Inflammatory EC"   = "#FFE576",
+  "Proliferative EC"  = "#FDBAD0",
+  "Mural-like EC"     = "#C8B5E7"
+)
+
+
+# ============================================================
+# 2. 计算 Disease × Functional_type 比例
+# ============================================================
+
+prop_data <- EC_functional@meta.data %>%
+  filter(
+    !is.na(Disease),
+    !is.na(Functional_type)
+  ) %>%
+  count(Disease, Functional_type, name = "n") %>%
+  group_by(Disease) %>%
+  mutate(
+    prop = n / sum(n) * 100
+  ) %>%
+  ungroup()
+
+
+# ============================================================
+# 3. 设置 Disease 顺序
+# ============================================================
+
+prop_data$Disease <- factor(
+  prop_data$Disease,
+  levels = c(
+    "GBM",
+    "BCBM",
+    "NSCLC-BM",
+    "Melanoma-BM",
+    "CRC-BM",
+    "ESCC-BM",
+    "HCC-BM",
+    "Sarcoma-BM",
+    "Other-BM"
+  )
+)
+
+
+# ============================================================
+# 4. 设置 Functional type 顺序
+# ============================================================
+
+prop_data$Functional_type <- factor(
+  prop_data$Functional_type,
+  levels = c(
+    "Angiogenic EC",
+    "IFN-responsive EC",
+    "Homeostatic EC",
+    "Barrier EC",
+    "Inflammatory EC",
+    "Proliferative EC",
+    "Mural-like EC"
+  )
+)
+
+
+# ============================================================
+# 5. 绘制比例图
+# ============================================================
+
+p_prop <- ggplot(
+  prop_data,
+  aes(
+    x = Disease,
+    y = prop,
+    fill = Functional_type,
+    alluvium = Functional_type,
+    stratum = Functional_type
+  )
+) +
+  
+  # ----------------------------------------------------------
+# 堆叠柱
+# ----------------------------------------------------------
+geom_col(
+  position = "stack",
+  width = 0.8
+) +
+  
+  # ----------------------------------------------------------
+# Alluvial 流线
+# ----------------------------------------------------------
+geom_alluvium(
+  aes(stratum = Functional_type),
+  width = 0.5,
+  alpha = 0.2,
+  color = "white",
+  linewidth = 0.8,
+  curve_type = "sigmoid"
+) +
+  
+  # ----------------------------------------------------------
+# Stratum
+# ----------------------------------------------------------
+geom_stratum(
+  width = 0.8,
+  alpha = 0.7,
+  color = "white"
+) +
+  
+  # ----------------------------------------------------------
+# 配色
+# ----------------------------------------------------------
+scale_fill_manual(
+  values = functional_colors
+) +
+  
+  # ----------------------------------------------------------
+# Y轴
+# ----------------------------------------------------------
+scale_y_continuous(
+  expand = c(0, 0),
+  limits = c(0, 100)
+) +
+  
+  # ----------------------------------------------------------
+# Labels
+# ----------------------------------------------------------
+labs(
+  x = NULL,
+  y = "Percentage of cells",
+  title = NULL,
+  fill = NULL
+) +
+  
+  # ----------------------------------------------------------
+# Theme
+# ----------------------------------------------------------
+theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 14,
+      color = "black"
+    ),
+    axis.title.y = element_text(
+      size = 18
+    ),
+    axis.text.y = element_text(
+      size = 14
+    ),
+    legend.text = element_text(
+      size = 12
+    ),
+    legend.title = element_text(
+      size = 14
+    )
+  )
+
+
+p_prop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 重新进行 EC 第一层 KNN 注释
+# ============================================================
+
+library(Seurat)
+library(SeuratObject)
+library(SCP)
+
+# ------------------------------------------------------------
+# 1. 读取 Query 和 Reference
+# ------------------------------------------------------------
+
+EC_functional_KNN <- readRDS(
+  "/home/data/t030736/Endothelial/EC_functional_annotated_noCluster12.rds"
+)
+
+EC_reference <- readRDS(
+  "/home/data/t030736/Endothelial/Endothelial.rds"
+)
+
+DefaultAssay(EC_functional_KNN) <- "RNA"
+DefaultAssay(EC_reference) <- "RNA"
+
+
+# ------------------------------------------------------------
+# 2. 修改 SCP::RunKNNPredict，使其兼容 Seurat v5
+# ------------------------------------------------------------
+
+RunKNNPredict_v5 <- SCP::RunKNNPredict
+
+replace_slot_with_layer <- function(x) {
+  
+  if (is.call(x)) {
+    
+    fn <- tryCatch(
+      as.character(x[[1]])[1],
+      error = function(e) ""
+    )
+    
+    if (fn %in% c("GetAssayData", "AverageExpression")) {
+      
+      nms <- names(x)
+      
+      if (!is.null(nms)) {
+        idx <- which(nms == "slot")
+        
+        if (length(idx) > 0) {
+          nms[idx] <- "layer"
+          names(x) <- nms
+        }
+      }
+    }
+    
+    for (i in seq_along(x)) {
+      x[[i]] <- replace_slot_with_layer(x[[i]])
+    }
+  }
+  
+  x
+}
+
+body(RunKNNPredict_v5) <- replace_slot_with_layer(
+  body(RunKNNPredict_v5)
+)
+
+
+# ------------------------------------------------------------
+# 3. 删除旧版 @tools 写入，避免 Seurat v5 报错
+# ------------------------------------------------------------
+
+knn_lines <- deparse(body(RunKNNPredict_v5))
+
+knn_lines <- knn_lines[
+  !grepl(
+    "srt_query@tools\\[\\[paste0\\(prefix, \"_classification\"\\)\\]\\] <- result",
+    knn_lines
+  )
+]
+
+body(RunKNNPredict_v5) <- parse(
+  text = paste(knn_lines, collapse = "\n")
+)[[1]]
+
+
+# ------------------------------------------------------------
+# 4. KNN prediction
+# ------------------------------------------------------------
+
+EC_functional_KNN <- RunKNNPredict_v5(
+  srt_query = EC_functional_KNN,
+  srt_ref = EC_reference,
+  ref_group = "EC.identity",
+  filter_lowfreq = 20
+)
+
+
+# ------------------------------------------------------------
+# 5. 查看 KNN 结果
+# ------------------------------------------------------------
+
+table(
+  EC_functional_KNN$KNNPredict_classification,
+  useNA = "ifany"
+)
+
+
+
+# ============================================================
+# 1. 将 KNN 结果写回 metadata
+# ============================================================
+
+EC_functional_KNN$KNNPredict_classification <-
+  EC_functional_KNN$KNNPredict_classification
+
+
+# ============================================================
+# 2. 设置 KNN 分类颜色
+#    与原始 tSNE 图保持一致
+# ============================================================
+
+KNN_colors <- c(
+  "Capillaries"   = "#A3C9DC",
+  "Veins"         = "#1E72A9",
+  "Angiogenic"    = "#ADD487",
+  "Proliferative" = "#389839",
+  "Interferon"    = "#F5BA6F",
+  "Arteries 1"    = "#EF7B1A",
+  "Arteries 2"    = "#F19695"
+)
+
+
+# ============================================================
+# 3. 检查 KNN 结果
+# ============================================================
+
+table(
+  EC_functional_KNN$KNNPredict_classification,
+  useNA = "ifany"
+)
+
+
+# ============================================================
+# 4. 计算各 Disease 中 KNN 类型的细胞比例
+# ============================================================
+
+library(dplyr)
+library(ggplot2)
+library(ggalluvial)
+
+prop_data <- EC_functional_KNN@meta.data %>%
+  filter(
+    !is.na(Disease),
+    !is.na(KNNPredict_classification)
+  ) %>%
+  count(
+    Disease,
+    KNNPredict_classification,
+    name = "n"
+  ) %>%
+  group_by(Disease) %>%
+  mutate(
+    prop = n / sum(n) * 100
+  ) %>%
+  ungroup()
+
+
+# ============================================================
+# 5. 设置 Disease 顺序
+# ============================================================
+
+prop_data$Disease <- factor(
+  prop_data$Disease,
+  levels = c(
+    "GBM",
+    "BCBM",
+    "NSCLC-BM",
+    "Melanoma-BM",
+    "CRC-BM",
+    "ESCC-BM",
+    "HCC-BM",
+    "Sarcoma-BM",
+    "Other-BM"
+  )
+)
+
+
+# ============================================================
+# 6. 设置 KNN 分类顺序
+# ============================================================
+
+prop_data$KNNPredict_classification <- factor(
+  prop_data$KNNPredict_classification,
+  levels = c(
+    "Capillaries",
+    "Veins",
+    "Angiogenic",
+    "Proliferative",
+    "Interferon",
+    "Arteries 1",
+    "Arteries 2"
+  )
+)
+
+
+# ============================================================
+# 7. 绘制 KNN 细胞比例图
+# ============================================================
+
+p_KNN_proportion <- ggplot(
+  prop_data,
+  aes(
+    x = Disease,
+    y = prop,
+    fill = KNNPredict_classification,
+    alluvium = KNNPredict_classification,
+    stratum = KNNPredict_classification
+  )
+) +
+  geom_col(
+    position = "stack",
+    width = 0.8
+  ) +
+  geom_alluvium(
+    aes(
+      stratum = KNNPredict_classification
+    ),
+    width = 0.5,
+    alpha = 0.2,
+    color = "white",
+    linewidth = 0.8,
+    curve_type = "sigmoid"
+  ) +
+  geom_stratum(
+    width = 0.8,
+    alpha = 0.7,
+    color = "white"
+  ) +
+  scale_fill_manual(
+    values = KNN_colors
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, 100)
+  ) +
+  labs(
+    x = NULL,
+    y = "Percentage of cells",
+    title = NULL,
+    fill = NULL
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 14,
+      color = "black"
+    ),
+    axis.text.y = element_text(
+      size = 14,
+      color = "black"
+    ),
+    axis.title.y = element_text(
+      size = 18
+    ),
+    legend.text = element_text(
+      size = 12
+    ),
+    legend.title = element_text(
+      size = 14
+    )
+  )
+
+p_KNN_proportion
+
+
+# ============================================================
+# 8. 保存图
+# ============================================================
+
+ggsave(
+  "/home/data/t030736/Endothelial/EC_KNN_Disease_Proportion.pdf",
+  p_KNN_proportion,
+  width = 12,
+  height = 7
+)
+
+ggsave(
+  "/home/data/t030736/Endothelial/EC_KNN_Disease_Proportion.png",
+  p_KNN_proportion,
+  width = 12,
+  height = 7,
+  dpi = 300
+)
