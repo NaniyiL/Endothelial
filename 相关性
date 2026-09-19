@@ -1,0 +1,514 @@
+#===========================================================================
+# 内皮细胞亚群相关性分析
+# KNN 七分类 + Marker平均表达 + Spearman相关性 + corrplot
+#===========================================================================
+
+#===========================================================================
+# 1. 加载R包
+#===========================================================================
+
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(RColorBrewer)
+
+
+#===========================================================================
+# 2. 设置对象
+#===========================================================================
+
+EC <- EC_functional_KNN
+
+
+#===========================================================================
+# 3. 设置亚群身份
+#===========================================================================
+
+# 当前KNN七分类
+Idents(EC) <- "KNNPredict_classification"
+
+
+# 查看亚群组成
+cat("\n================ KNN SUBTYPE COUNTS ================\n")
+
+print(
+  table(
+    EC$KNNPredict_classification,
+    useNA = "ifany"
+  )
+)
+
+
+#===========================================================================
+# 4. 检查亚群名称
+#===========================================================================
+
+subtype_levels <- c(
+  "Angiogenic",
+  "Arteries 1",
+  "Arteries 2",
+  "Capillaries",
+  "Interferon",
+  "Proliferative",
+  "Veins"
+)
+
+# 只保留实际存在的亚群
+subtype_levels <- subtype_levels[
+  subtype_levels %in% unique(EC$KNNPredict_classification)
+]
+
+EC$KNNPredict_classification <- factor(
+  EC$KNNPredict_classification,
+  levels = subtype_levels
+)
+
+Idents(EC) <- "KNNPredict_classification"
+
+
+cat("\n================ SUBTYPE LEVELS ================\n")
+print(levels(EC$KNNPredict_classification))
+
+
+#===========================================================================
+# 5. 寻找每个亚群的Marker基因
+#===========================================================================
+
+cat("\n================ FINDING MARKERS ================\n")
+
+Markers <- FindAllMarkers(
+  EC,
+  only.pos = TRUE,
+  min.pct = 0.20,
+  logfc.threshold = 0.25,
+  test.use = "wilcox",
+  verbose = TRUE,
+  max.cells.per.ident = 2000
+)
+
+
+#===========================================================================
+# 6. 去除核糖体基因
+#===========================================================================
+
+Markers <- Markers %>%
+  filter(
+    !grepl("^RPL|^RPS", gene, ignore.case = FALSE)
+  ) %>%
+  filter(
+    p_val_adj < 0.05
+  )
+
+
+cat("\n================ MARKER SUMMARY ================\n")
+
+print(
+  Markers %>%
+    group_by(cluster) %>%
+    summarise(
+      n_markers = n(),
+      .groups = "drop"
+    )
+)
+
+
+#===========================================================================
+# 7. 每个亚群选择Top Marker
+#===========================================================================
+
+# 为了避免某些亚群Marker过多导致相关性分析受影响，
+# 每个亚群最多选择Top 50个Marker
+#
+# 如果希望使用更多/更少基因，可以修改top_n
+
+top_n <- 50
+
+Markers_top <- Markers %>%
+  group_by(cluster) %>%
+  arrange(desc(avg_log2FC), p_val_adj) %>%
+  slice_head(n = top_n) %>%
+  ungroup()
+
+
+cat("\n================ TOP MARKERS ================\n")
+
+print(
+  Markers_top %>%
+    group_by(cluster) %>%
+    summarise(
+      n = n(),
+      genes = paste(gene, collapse = ", "),
+      .groups = "drop"
+    )
+)
+
+
+#===========================================================================
+# 8. 提取所有用于相关性分析的基因
+#===========================================================================
+
+marker_genes <- unique(Markers_top$gene)
+
+cat("\nNumber of genes used for correlation:\n")
+print(length(marker_genes))
+
+
+#===========================================================================
+# 9. 计算各亚群平均表达
+#===========================================================================
+
+cat("\n================ AVERAGE EXPRESSION ================\n")
+
+# Seurat 5推荐使用layer，而不是旧版slot
+Markers_av <- AverageExpression(
+  EC,
+  assays = "RNA",
+  features = marker_genes,
+  group.by = "KNNPredict_classification",
+  layer = "data",
+  verbose = FALSE
+)
+
+# 提取RNA平均表达矩阵
+Markers_av <- Markers_av$RNA
+
+
+#===========================================================================
+# 10. 按基因进行Z-score标准化
+#===========================================================================
+
+# 行 = gene
+# 列 = endothelial subtype
+
+gene_cell_exp <- t(
+  scale(
+    t(as.matrix(Markers_av)),
+    center = TRUE,
+    scale = TRUE
+  )
+)
+
+
+# 删除可能产生NA的基因
+gene_cell_exp <- gene_cell_exp[
+  complete.cases(gene_cell_exp),
+  ,
+  drop = FALSE
+]
+
+
+cat("\n================ EXPRESSION MATRIX ================\n")
+
+print(dim(gene_cell_exp))
+
+
+#===========================================================================
+# 11. Spearman相关性
+#===========================================================================
+
+cat("\n================ SPEARMAN CORRELATION ================\n")
+
+cell_cor <- cor(
+  as.matrix(gene_cell_exp),
+  method = "spearman",
+  use = "pairwise.complete.obs"
+)
+
+
+#===========================================================================
+# 12. 显著性检验
+#===========================================================================
+
+cat("\n================ CORRELATION P VALUES ================\n")
+
+# 注意：
+# cor.mtest() 应该使用原始表达矩阵，而不是相关矩阵
+cell_cor_p <- corrplot::cor.mtest(
+  as.matrix(gene_cell_exp),
+  conf.level = 0.95
+)$p
+
+
+#===========================================================================
+# 13. 检查相关性矩阵
+#===========================================================================
+
+print(
+  round(
+    cell_cor,
+    3
+  )
+)
+
+
+#===========================================================================
+# 14. 设置颜色
+#===========================================================================
+
+corr_colors <- rev(
+  brewer.pal(
+    n = 8,
+    name = "RdYlBu"
+  )
+)
+
+
+#===========================================================================
+# 15. 绘制相关性热图
+#===========================================================================
+
+pdf(
+  "EC_subtype_correlation_corrplot.pdf",
+  width = 9,
+  height = 8
+)
+
+corrplot(
+  cell_cor,
+  
+  #----------------------------------------------------------
+  # 热图形状
+  #----------------------------------------------------------
+  method = "circle",
+  
+  #----------------------------------------------------------
+  # 聚类
+  #----------------------------------------------------------
+  order = "hclust",
+  hclust.method = "ward.D",
+  
+  #----------------------------------------------------------
+  # 展示完整矩阵
+  #----------------------------------------------------------
+  type = "full",
+  
+  #----------------------------------------------------------
+  # 聚类框
+  #----------------------------------------------------------
+  addrect = NULL,
+  
+  #----------------------------------------------------------
+  # 颜色
+  #----------------------------------------------------------
+  col = corr_colors,
+  
+  #----------------------------------------------------------
+  # 亚群名称
+  #----------------------------------------------------------
+  tl.cex = 0.8,
+  tl.col = "black",
+  
+  #----------------------------------------------------------
+  # legend
+  #----------------------------------------------------------
+  cl.cex = 0.7,
+  cl.pos = "r",
+  cl.length = 5,
+  cl.ratio = 0.1,
+  
+  #----------------------------------------------------------
+  # 显著性
+  #----------------------------------------------------------
+  p.mat = cell_cor_p,
+  sig.level = 0.05,
+  insig = "blank",
+  
+  #----------------------------------------------------------
+  # 边距
+  #----------------------------------------------------------
+  mar = c(3, 0, 2, 0)
+)
+
+dev.off()
+
+
+#===========================================================================
+# 16. 在R中显示图
+#===========================================================================
+
+corrplot(
+  cell_cor,
+  
+  method = "circle",
+  
+  order = "hclust",
+  hclust.method = "ward.D",
+  
+  type = "full",
+  
+  addrect = NULL,
+  
+  col = corr_colors,
+  
+  tl.cex = 0.8,
+  tl.col = "black",
+  
+  cl.cex = 0.7,
+  cl.pos = "r",
+  cl.length = 5,
+  cl.ratio = 0.1,
+  
+  p.mat = cell_cor_p,
+  sig.level = 0.05,
+  insig = "blank",
+  
+  mar = c(3, 0, 2, 0)
+)
+
+
+#===========================================================================
+# 17. 保存分析结果
+#===========================================================================
+
+correlation_results <- list(
+  Markers = Markers,
+  Markers_top = Markers_top,
+  AverageExpression = Markers_av,
+  Expression_Zscore = gene_cell_exp,
+  Correlation = cell_cor,
+  Pvalue = cell_cor_p
+)
+
+saveRDS(
+  correlation_results,
+  file = "EC_subtype_correlation_results.rds"
+)
+
+
+cat("\n====================================================\n")
+cat("EC subtype correlation analysis completed!\n")
+cat("====================================================\n")
+
+pdf("Figure_2E.pdf", width = 8, height = 7)
+
+corrplot(
+  cell_cor,
+  method = "square",
+  order = "hclust",
+  hclust.method = "ward.D",
+  type = "full",
+  addrect = 5,
+  col = rev(brewer.pal(8, "RdYlBu")),
+  tl.cex = 0.8,
+  tl.col = "black",
+  cl.cex = 0.5,
+  cl.pos = "r",
+  cl.length = 5,
+  cl.ratio = 0.1,
+  mar = c(3, 0, 2, 0)
+)
+
+dev.off()
+# 先出图
+corrplot(
+  cell_cor,
+  method = "square",
+  order = "hclust",
+  hclust.method = "ward.D",
+  type = "full",
+  addrect = 5,
+  col = colorRampPalette(
+    c(
+      "#50A050",
+      "#B4D2B4",
+      "#FAFAFA",
+      "#F5B4C8",
+      "#C83264"
+    )
+  )(200),
+  tl.cex = 0.8,
+  tl.col = "black",
+  cl.cex = 0.5,
+  cl.pos = "r",
+  cl.length = 5,
+  cl.ratio = 0.1,
+  mar = c(3, 0, 2, 0)
+)
+
+# 再保存
+pdf("Figure_2E.pdf", width = 8, height = 7)
+
+corrplot(
+  cell_cor,
+  method = "square",
+  order = "hclust",
+  hclust.method = "ward.D",
+  type = "full",
+  addrect = 5,
+  col = colorRampPalette(
+    c(
+      "#50A050",
+      "#B4D2B4",
+      "#FAFAFA",
+      "#F5B4C8",
+      "#C83264"
+    )
+  )(200),
+  tl.cex = 0.8,
+  tl.col = "black",
+  cl.cex = 0.5,
+  cl.pos = "r",
+  cl.length = 5,
+  cl.ratio = 0.1,
+  mar = c(3, 0, 2, 0)
+)
+
+dev.off()
+
+
+# 先出图
+corrplot(
+  cell_cor,
+  method = "square",
+  order = "hclust",
+  hclust.method = "ward.D",
+  type = "full",
+  addrect = 5,
+  col = colorRampPalette(
+    c(
+      "#4F81BD",
+      "#B4D2EC",
+      "#FAFAFA",
+      "#FFB6C5",
+      "#FF4F7B"
+    )
+  )(200),
+  tl.cex = 0.8,
+  tl.col = "black",
+  cl.cex = 0.5,
+  cl.pos = "r",
+  cl.length = 5,
+  cl.ratio = 0.1,
+  mar = c(3, 0, 2, 0)
+)
+
+# 再保存
+pdf("/home/data/t030736/Figure_2/Figure_2E.pdf", width = 8, height = 7)
+
+corrplot(
+  cell_cor,
+  method = "square",
+  order = "hclust",
+  hclust.method = "ward.D",
+  type = "full",
+  addrect = 5,
+  col = colorRampPalette(
+    c(
+      "#4F81BD",
+      "#B4D2EC",
+      "#FAFAFA",
+      "#FFB6C5",
+      "#FF4F7B"
+    )
+  )(200),
+  tl.cex = 0.8,
+  tl.col = "black",
+  cl.cex = 0.5,
+  cl.pos = "r",
+  cl.length = 5,
+  cl.ratio = 0.1,
+  mar = c(3, 0, 2, 0)
+)
+
+dev.off()
