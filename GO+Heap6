@@ -1,0 +1,999 @@
+# ============================================================
+# EC KNN 七亚群：Top6 Marker + GO-BP 组合图
+# ============================================================
+
+library(Seurat)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(ggplot2)
+library(grid)
+library(gtable)
+library(patchwork)
+library(stringr)
+library(pheatmap)
+
+# ============================================================
+# 1. 基本设置
+# ============================================================
+
+DefaultAssay(EC_functional_KNN) <- "RNA"
+Idents(EC_functional_KNN) <- "Vascular_type"
+
+vascular_levels <- c(
+  "Angiogenic EC",
+  "IFN-responsive EC",
+  "Capillary EC",
+  "Venous EC",
+  "Proliferative EC",
+  "Arterial EC 1",
+  "Arterial EC 2"
+)
+
+vascular_levels <- vascular_levels[
+  vascular_levels %in%
+    unique(as.character(EC_functional_KNN$Vascular_type))
+]
+
+EC_functional_KNN$Vascular_type <- factor(
+  EC_functional_KNN$Vascular_type,
+  levels = vascular_levels
+)
+
+vascular_colors <- c(
+  "Angiogenic EC"     = "#52B3FF",
+  "IFN-responsive EC" = "#9EC5EC",
+  "Capillary EC"      = "#CAE691",
+  "Venous EC"         = "#FF7A9A",
+  "Proliferative EC"  = "#FFE576",
+  "Arterial EC 1"     = "#FDBAD0",
+  "Arterial EC 2"     = "#C8B5E7"
+)
+
+# ============================================================
+# 2. FindAllMarkers
+# ============================================================
+
+subtype_markers <- FindAllMarkers(
+  EC_functional_KNN,
+  assay = "RNA",
+  only.pos = TRUE,
+  min.pct = 0.25,
+  logfc.threshold = 0.25
+)
+
+DEGs <- subtype_markers %>%
+  filter(
+    avg_log2FC > 1,
+    p_val_adj < 0.05,
+    cluster %in% vascular_levels
+  ) %>%
+  mutate(
+    cluster = factor(
+      as.character(cluster),
+      levels = vascular_levels
+    )
+  ) %>%
+  arrange(
+    cluster,
+    desc(avg_log2FC)
+  )
+
+cat("\nMarker counts:\n")
+print(table(DEGs$cluster))
+
+# ============================================================
+# 3. 每个亚群 Top6 Marker
+#    先全局去重，再每群取 Top6
+# ============================================================
+
+marker_unique <- subtype_markers %>%
+  filter(
+    cluster %in% vascular_levels,
+    p_val_adj < 0.05,
+    avg_log2FC > 0
+  ) %>%
+  arrange(desc(avg_log2FC)) %>%
+  distinct(gene, .keep_all = TRUE)
+
+top6_EC <- marker_unique %>%
+  group_by(cluster) %>%
+  slice_max(
+    order_by = avg_log2FC,
+    n = 6,
+    with_ties = FALSE
+  ) %>%
+  ungroup() %>%
+  mutate(
+    cluster = factor(
+      as.character(cluster),
+      levels = vascular_levels
+    )
+  ) %>%
+  arrange(
+    cluster,
+    desc(avg_log2FC)
+  )
+
+cat("\nTop6 marker counts:\n")
+print(table(top6_EC$cluster))
+
+# ============================================================
+# 4. 删除空 factor levels
+# ============================================================
+
+EC_functional_KNN$Vascular_type <- droplevels(
+  EC_functional_KNN$Vascular_type
+)
+
+top6_EC$cluster <- droplevels(
+  top6_EC$cluster
+)
+
+vascular_levels <- levels(
+  EC_functional_KNN$Vascular_type
+)
+
+module_names <- levels(
+  top6_EC$cluster
+)
+
+# ============================================================
+# 5. DotPlot 获取表达矩阵
+# ============================================================
+
+top_dotplot <- DotPlot(
+  EC_functional_KNN,
+  features = top6_EC$gene,
+  group.by = "Vascular_type",
+  assay = "RNA",
+  scale = TRUE,
+  col.min = -2,
+  col.max = 2
+)
+
+
+# ============================================================
+# 10. 提取 Heatmap expression matrix
+# ============================================================
+
+heatmap_data <- top_dotplot$data %>%
+  dplyr::select(
+    features.plot,
+    id,
+    avg.exp.scaled
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = id,
+    values_from = avg.exp.scaled
+  ) %>%
+  tibble::column_to_rownames(
+    "features.plot"
+  ) %>%
+  as.matrix()
+
+heatmap_data <- heatmap_data[
+  top6_EC$gene,
+  vascular_levels,
+  drop = FALSE
+]
+
+
+# ============================================================
+# 11. Heatmap annotation
+# ============================================================
+
+column_anno <- data.frame(
+  Subtype = factor(
+    vascular_levels,
+    levels = vascular_levels
+  ),
+  row.names = vascular_levels
+)
+
+row_anno <- data.frame(
+  Subtype = top6_EC$cluster,
+  row.names = top6_EC$gene
+)
+
+
+# ============================================================
+# 12. 模块大小 + row gaps
+# ============================================================
+
+module_sizes <- table(
+  top6_EC$cluster
+)
+
+module_sizes <- module_sizes[
+  module_sizes > 0
+]
+
+module_names <- names(module_sizes)
+
+row_gaps <- head(
+  cumsum(module_sizes),
+  -1
+)
+
+cat("\n================ Module sizes ================\n")
+print(module_sizes)
+
+
+# ============================================================
+# 13. Marker Heatmap
+# ============================================================
+
+ht_e <- pheatmap::pheatmap(
+  heatmap_data,
+  
+  scale = "none",
+  
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  
+  gaps_row = row_gaps,
+  
+  annotation_col = column_anno,
+  annotation_row = row_anno,
+  
+  annotation_colors = list(
+    Subtype = vascular_colors
+  ),
+  
+  annotation_names_row = FALSE,
+  annotation_names_col = FALSE,
+  
+  color = colorRampPalette(
+    c(
+      "#78AFCB",
+      "#FFFFFF",
+      "#E98282"
+    )
+  )(100),
+  
+  breaks = seq(
+    -2,
+    2,
+    length.out = 101
+  ),
+  
+  legend_breaks = c(
+    -2,
+    -1,
+    0,
+    1,
+    2
+  ),
+  
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  
+  fontsize_row = 7,
+  fontsize_col = 9,
+  
+  angle_col = "45",
+  
+  border_color = NA,
+  
+  main = "Marker expression (Z-score)",
+  
+  silent = TRUE
+)
+
+
+# ============================================================
+# 14. GO-BP background
+#
+# 至少在一个 EC 亚群中：
+# 基因检测比例 >= 25%
+# ============================================================
+
+counts_EC <- GetAssayData(
+  EC_functional_KNN,
+  assay = "RNA",
+  layer = "counts"
+)
+
+pct_by_subtype <- sapply(
+  vascular_levels,
+  function(x) {
+    
+    cells <- colnames(
+      EC_functional_KNN
+    )[
+      as.character(
+        EC_functional_KNN$Vascular_type
+      ) == x
+    ]
+    
+    Matrix::rowMeans(
+      counts_EC[
+        ,
+        cells,
+        drop = FALSE
+      ] > 0
+    )
+  }
+)
+
+go_background <- rownames(
+  counts_EC
+)[
+  apply(
+    pct_by_subtype,
+    1,
+    max
+  ) >= 0.25
+]
+
+cat(
+  "\n================ GO background ================\n",
+  "GO background genes:",
+  length(go_background),
+  "\n"
+)
+
+
+# ============================================================
+# 15. GO input genes
+#
+# 注意：
+# GO 仍然使用全部显著阳性 marker
+# 不限制 Top6
+# ============================================================
+
+go_markers <- subtype_markers %>%
+  dplyr::filter(
+    cluster %in% vascular_levels,
+    p_val_adj < 0.05,
+    avg_log2FC > 0,
+    gene %in% go_background
+  ) %>%
+  dplyr::distinct(
+    cluster,
+    gene,
+    .keep_all = TRUE
+  )
+
+
+go_genes <- setNames(
+  lapply(
+    module_names,
+    function(x) {
+      
+      go_markers$gene[
+        as.character(
+          go_markers$cluster
+        ) == x
+      ]
+    }
+  ),
+  module_names
+)
+
+
+# ============================================================
+# 16. GO input 检查
+# ============================================================
+
+go_input_counts <- data.frame(
+  subtype = module_names,
+  
+  n_heatmap = as.integer(
+    module_sizes
+  ),
+  
+  n_GO_input = lengths(
+    go_genes
+  ),
+  
+  row.names = NULL
+)
+
+cat(
+  "\n================ GO input counts ================\n"
+)
+
+print(
+  go_input_counts
+)
+
+
+# ============================================================
+# 17. GO-BP enrichment
+# ============================================================
+
+go_results <- lapply(
+  go_genes,
+  function(genes_i) {
+    
+    if (length(genes_i) == 0) {
+      return(NULL)
+    }
+    
+    clusterProfiler::enrichGO(
+      gene = genes_i,
+      
+      universe = go_background,
+      
+      OrgDb = org.Hs.eg.db,
+      
+      keyType = "SYMBOL",
+      
+      ont = "BP",
+      
+      pAdjustMethod = "BH",
+      
+      pvalueCutoff = 1,
+      
+      qvalueCutoff = 1
+    )
+  }
+)
+
+names(go_results) <- names(
+  go_genes
+)
+
+
+# ============================================================
+# 18. 整理 GO enrichment table
+# ============================================================
+
+go_table_list <- lapply(
+  names(go_results),
+  function(x) {
+    
+    res <- go_results[[x]]
+    
+    if (is.null(res)) {
+      return(NULL)
+    }
+    
+    df <- as.data.frame(res)
+    
+    if (nrow(df) == 0) {
+      return(NULL)
+    }
+    
+    df$subtype <- x
+    
+    df
+  }
+)
+
+go_table <- dplyr::bind_rows(
+  go_table_list
+)
+
+cat(
+  "\n================ GO table ================\n",
+  "GO terms:",
+  nrow(go_table),
+  "\n"
+)
+
+
+# ============================================================
+# 19. 筛选显著 GO-BP
+# ============================================================
+
+go_sig <- go_table %>%
+  dplyr::filter(
+    !is.na(p.adjust),
+    p.adjust < 0.05
+  )
+
+cat(
+  "\n================ Significant GO ================\n"
+)
+
+print(
+  table(
+    go_sig$subtype
+  )
+)
+
+
+# ============================================================
+# 20. 每个亚群 Top5 GO-BP
+# ============================================================
+
+go_top <- go_sig %>%
+  dplyr::group_by(
+    subtype
+  ) %>%
+  dplyr::slice_min(
+    order_by = p.adjust,
+    n = 5,
+    with_ties = FALSE
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    subtype = factor(
+      subtype,
+      levels = module_names
+    )
+  ) %>%
+  dplyr::arrange(
+    subtype,
+    p.adjust
+  )
+
+cat(
+  "\n================ Top 5 GO-BP ================\n"
+)
+
+print(
+  go_top %>%
+    dplyr::select(
+      subtype,
+      Description,
+      p.adjust
+    ),
+  n = 100
+)
+
+
+# ============================================================
+# 21. GO text
+# ============================================================
+
+go_text <- setNames(
+  vapply(
+    module_names,
+    
+    function(x) {
+      
+      terms <- go_top$Description[
+        as.character(
+          go_top$subtype
+        ) == x
+      ]
+      
+      if (length(terms) == 0) {
+        
+        return(
+          "No significant GO-BP terms"
+        )
+        
+      }
+      
+      paste(
+        stringr::str_wrap(
+          terms,
+          width = 52
+        ),
+        collapse = "\n"
+      )
+    },
+    
+    character(1)
+  ),
+  
+  module_names
+)
+
+
+# ============================================================
+# 22. GO panel 高度
+# ============================================================
+
+go_heights <- do.call(
+  unit.c,
+  
+  lapply(
+    seq_along(module_sizes),
+    
+    function(i) {
+      
+      h <- unit(
+        as.numeric(
+          module_sizes[i]
+        ),
+        "null"
+      )
+      
+      if (i == 1) {
+        
+        h
+        
+      } else {
+        
+        unit.c(
+          unit(
+            4,
+            "bigpts"
+          ),
+          h
+        )
+      }
+    }
+  )
+)
+
+
+# ============================================================
+# 23. 创建 GO panel
+# ============================================================
+
+go_panel <- gtable::gtable(
+  widths = unit.c(
+    
+    unit(
+      0.18,
+      "in"
+    ),
+    
+    unit(
+      0.06,
+      "in"
+    ),
+    
+    unit(
+      1,
+      "null"
+    )
+  ),
+  
+  heights = go_heights
+)
+
+
+# ============================================================
+# 24. 添加 GO 模块
+# ============================================================
+
+for (i in seq_along(module_names)) {
+  
+  subtype_i <- module_names[i]
+  
+  text_i <- go_text[[subtype_i]]
+  
+  color_i <- vascular_colors[[subtype_i]]
+  
+  n_lines <- length(
+    strsplit(
+      text_i,
+      "\n",
+      fixed = TRUE
+    )[[1]]
+  )
+  
+  
+  # ----------------------------------------------------------
+  # 彩色模块条
+  # ----------------------------------------------------------
+  
+  module_bar <- grobTree(
+    
+    rectGrob(
+      gp = gpar(
+        fill = color_i,
+        col = NA
+      )
+    ),
+    
+    textGrob(
+      paste0(
+        "n:",
+        module_sizes[i]
+      ),
+      
+      rot = 90,
+      
+      gp = gpar(
+        col = "white",
+        fontsize = 8
+      )
+    )
+  )
+  
+  
+  # ----------------------------------------------------------
+  # GO text box
+  # ----------------------------------------------------------
+  
+  text_box <- grobTree(
+    
+    rectGrob(
+      gp = gpar(
+        fill = "#F4F4F4",
+        col = "#BDBDBD",
+        lwd = 0.6
+      )
+    ),
+    
+    textGrob(
+      
+      text_i,
+      
+      x = unit(
+        0.03,
+        "npc"
+      ),
+      
+      y = unit(
+        0.5,
+        "npc"
+      ),
+      
+      just = c(
+        "left",
+        "centre"
+      ),
+      
+      gp = gpar(
+        
+        col = if (
+          text_i ==
+          "No significant GO-BP terms"
+        ) {
+          
+          "grey45"
+          
+        } else {
+          
+          color_i
+        },
+        
+        fontsize = if (
+          n_lines > 9
+        ) {
+          
+          8
+          
+        } else {
+          
+          9
+        },
+        
+        lineheight = 1.1
+      )
+    )
+  )
+  
+  
+  # ----------------------------------------------------------
+  # 加入 GO panel
+  # ----------------------------------------------------------
+  
+  go_panel <- gtable::gtable_add_grob(
+    
+    go_panel,
+    
+    grobs = list(
+      module_bar,
+      text_box
+    ),
+    
+    t = rep(
+      2 * i - 1,
+      2
+    ),
+    
+    l = c(
+      1,
+      3
+    ),
+    
+    clip = "on"
+  )
+}
+
+
+# ============================================================
+# 25. 构建最终 Figure gtable
+# ============================================================
+
+figure_EC_final <- ht_e$gtable
+
+
+# ============================================================
+# 26. 找到 heatmap matrix 和 gene names
+# ============================================================
+
+matrix_id <- which(
+  figure_EC_final$layout$name ==
+    "matrix"
+)
+
+gene_id <- which(
+  figure_EC_final$layout$name ==
+    "row_names"
+)
+
+matrix_col <- figure_EC_final$layout$l[
+  matrix_id
+]
+
+gene_col <- figure_EC_final$layout$l[
+  gene_id
+]
+
+
+# ============================================================
+# 27. Gene names 放到 Heatmap 左侧
+# ============================================================
+
+figure_EC_final <- gtable::gtable_add_cols(
+  figure_EC_final,
+  
+  widths =
+    figure_EC_final$widths[
+      gene_col
+    ],
+  
+  pos = matrix_col - 1
+)
+
+old_gene_col <- figure_EC_final$layout$l[
+  gene_id
+]
+
+figure_EC_final$layout$l[
+  gene_id
+] <- matrix_col
+
+figure_EC_final$layout$r[
+  gene_id
+] <- matrix_col
+
+figure_EC_final$grobs[[gene_id]]$x <-
+  unit(
+    1,
+    "npc"
+  ) -
+  unit(
+    3,
+    "bigpts"
+  )
+
+figure_EC_final$grobs[[gene_id]]$hjust <- 1
+
+figure_EC_final$widths[
+  old_gene_col
+] <- unit(
+  0,
+  "bigpts"
+)
+
+
+# ============================================================
+# 28. Marker Heatmap 横向宽度
+# ============================================================
+
+matrix_col <- figure_EC_final$layout$l[
+  matrix_id
+]
+
+figure_EC_final$widths[
+  matrix_col
+] <- unit(
+  2.8,
+  "in"
+)
+
+
+# ============================================================
+# 29. GO panel 横向宽度
+# ============================================================
+
+figure_EC_final <- gtable::gtable_add_cols(
+  
+  figure_EC_final,
+  
+  widths = unit.c(
+    
+    unit(
+      2,
+      "bigpts"
+    ),
+    
+    unit(
+      4.8,
+      "in"
+    ),
+    
+    unit(
+      8,
+      "bigpts"
+    )
+  ),
+  
+  pos = matrix_col
+)
+
+
+# ============================================================
+# 30. 添加 GO panel
+# ============================================================
+
+figure_EC_final <- gtable::gtable_add_grob(
+  
+  figure_EC_final,
+  
+  go_panel,
+  
+  t =
+    figure_EC_final$layout$t[
+      matrix_id
+    ],
+  
+  b =
+    figure_EC_final$layout$b[
+      matrix_id
+    ],
+  
+  l = matrix_col + 2,
+  
+  name = "GO_text_boxes",
+  
+  clip = "on"
+)
+pdf_file <- "/home/data/t030736/Endothelial/Figure_2D.pdf"
+
+ggsave(
+  filename = pdf_file,
+  plot = p_EC_final,
+  width = 11.0,
+  height = 12.5,
+  units = "in",
+  device = cairo_pdf,
+  limitsize = FALSE
+)
+
+cat(
+  "\n============================================================\n",
+  "Figure 2D saved:\n",
+  pdf_file,
+  "\n",
+  "============================================================\n"
+)
+
+# ============================================================
+# 31. 最终 Figure
+# ============================================================
+
+p_EC_final <- patchwork::wrap_elements(
+  full = figure_EC_final
+)
+
+print(p_EC_final)
+
+
+# ============================================================
+# 32. 保存 PDF
+# ============================================================
+
+pdf_file <- paste0(
+  "/home/data/t030736/Figure_2/",
+  "Figure_2D.pdf"
+)
+
+ggsave(
+  filename = pdf_file,
+  
+  plot = p_EC_final,
+  
+  width = 11.0,
+  
+  height = 10.5,
+  
+  units = "in",
+  
+  device = cairo_pdf,
+  
+  limitsize = FALSE
+)
+
+cat(
+  "\n============================================================\n",
+  "EC Marker + GO-BP Top6 figure saved:\n",
+  pdf_file,
+  "\n",
+  "============================================================\n"
+)
