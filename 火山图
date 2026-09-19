@@ -1,0 +1,267 @@
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+
+# ============================================================
+# 1. 准备 DE 数据
+# ============================================================
+
+df <- DE_GBM_vs_BrM_Capillary
+
+df$gene <- rownames(df)
+
+df <- df %>%
+  dplyr::filter(
+    avg_log2FC >= -4,
+    avg_log2FC <= 4
+  )
+
+
+# ============================================================
+# 2. 双曲线
+# ============================================================
+
+a <- seq(0.001, 2, 0.001)
+
+# 调整为 1e-16
+y <- 1 / a + (-log10(1e-16))
+
+cur <- rbind(
+  a1 = data.frame(
+    x = a + 0.8,
+    y = y - 0.2
+  ),
+  a2 = data.frame(
+    x = -(a + 0.8),
+    y = y - 0.2
+  )
+)
+
+cur <- cur %>%
+  dplyr::filter(
+    x >= -4,
+    x <= 4
+  )
+
+
+# ============================================================
+# 3. 根据双曲线分类
+# ============================================================
+
+df$diff <- ifelse(
+  df$avg_log2FC >= 0,
+  (1 / (df$avg_log2FC - 0.8)) +
+    (-log10(1e-16) - 0.2),
+  (1 / (-df$avg_log2FC - 0.8)) +
+    (-log10(1e-16) - 0.2)
+)
+
+df$change <- "stable"
+
+# GBM up
+df[
+  df$avg_log2FC >= 0.8 &
+    -log10(df$p_val_adj) >= df$diff,
+  "change"
+] <- "up"
+
+# GBM down
+df[
+  df$avg_log2FC <= -0.8 &
+    -log10(df$p_val_adj) >= df$diff,
+  "change"
+] <- "down"
+
+
+# ============================================================
+# 4. 检查 CLEC4E
+# ============================================================
+
+df %>%
+  dplyr::filter(
+    gene == "CLEC4E"
+  ) %>%
+  dplyr::select(
+    gene,
+    avg_log2FC,
+    p_val_adj,
+    diff,
+    change
+  )
+
+
+# ============================================================
+# 5. Top10 up
+# ============================================================
+
+top_up <- df %>%
+  dplyr::filter(
+    change == "up"
+  ) %>%
+  dplyr::arrange(
+    desc(avg_log2FC)
+  ) %>%
+  dplyr::slice_head(
+    n = 10
+  )
+
+
+# ============================================================
+# 6. Top10 down
+# ============================================================
+
+top_down <- df %>%
+  dplyr::filter(
+    change == "down"
+  ) %>%
+  dplyr::arrange(
+    avg_log2FC
+  ) %>%
+  dplyr::slice_head(
+    n = 10
+  )
+
+
+# ============================================================
+# 7. 加入 CLEC4E 标签
+# ============================================================
+
+label_CLEC4E <- df %>%
+  dplyr::filter(
+    gene == "CLEC4E"
+  )
+
+label_genes <- dplyr::bind_rows(
+  top_up,
+  top_down,
+  label_CLEC4E
+) %>%
+  dplyr::distinct(
+    gene,
+    .keep_all = TRUE
+  )
+
+
+# ============================================================
+# 8. Volcano plot
+# ============================================================
+
+p_GBM_vs_BrM_Capillary <- ggplot(
+  df,
+  aes(
+    x = avg_log2FC,
+    y = -log10(p_val_adj),
+    size = pct.1
+  )
+) +
+  
+  geom_point(
+    alpha = 0.55,
+    aes(
+      color = change
+    )
+  ) +
+  
+  # 双曲线
+  geom_line(
+    data = cur,
+    aes(
+      x = x,
+      y = y
+    ),
+    linetype = 2,
+    color = "black",
+    linewidth = 0.8,
+    alpha = 0.7,
+    inherit.aes = FALSE
+  ) +
+  
+  # 基因标签
+  ggrepel::geom_label_repel(
+    data = label_genes,
+    aes(
+      x = avg_log2FC,
+      y = -log10(p_val_adj),
+      label = gene
+    ),
+    color = "black",
+    size = 3.2,
+    max.overlaps = 30,
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.4,
+    fill = "white",
+    inherit.aes = FALSE
+  ) +
+  
+  labs(
+    x = "Log2[FC]",
+    y = "-Log10(Padj)",
+    title = "GBM Capillary EC vs BrM Capillary EC"
+  ) +
+  
+  scale_color_manual(
+    values = c(
+      "down" = "#2196F3",
+      "stable" = "#BEBEBE",
+      "up" = "#F06292"
+    )
+  ) +
+  
+  scale_size_continuous(
+    range = c(0.5, 4)
+  ) +
+  
+  # Y轴改为 0–120
+  coord_cartesian(
+    xlim = c(-4, 4),
+    ylim = c(0, 120)
+  ) +
+  
+  theme_classic(
+    base_size = 14
+  ) +
+  
+  theme(
+    axis.text = element_text(
+      size = 14,
+      color = "black"
+    ),
+    axis.title = element_text(
+      size = 15,
+      color = "black"
+    ),
+    plot.title = element_text(
+      size = 16,
+      hjust = 0.5
+    ),
+    legend.title = element_blank()
+  )
+
+
+# ============================================================
+# 9. 显示
+# ============================================================
+
+p_GBM_vs_BrM_Capillary
+
+
+# ============================================================
+# 10. 保存
+# ============================================================
+
+ggsave(
+  "Figure.pdf",
+  plot = p_GBM_vs_BrM_Capillary,
+  width = 8,
+  height = 7
+)
+
+ggsave(
+  "GBM_vs_BrM_Capillary_Volcano.png",
+  plot = p_GBM_vs_BrM_Capillary,
+  width = 8,
+  height = 7,
+  dpi = 300
+)
