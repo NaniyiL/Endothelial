@@ -1,0 +1,898 @@
+rm(list = ls())
+
+library(Seurat)
+library(iTALK)
+library(dplyr)
+library(circlize)
+library(ggplot2)
+
+# ============================================================
+# 1. 读取数据
+# ============================================================
+
+obj <- readRDS("/home/data/t030736/Seuobj.rds")
+
+GBM_EC11 <- readRDS(
+  "/home/data/t030736/Endothelial/GBM_EC11.rds"
+)
+
+EC_old <- readRDS(
+  "/home/data/t030736/Endothelial/EC_Vascular_KNN.rds"
+)
+
+# ============================================================
+# 2. Figure 1 注释
+# ============================================================
+
+obj$Figure1_type <- NA_character_
+
+obj$Figure1_type[obj$celltype.1 %in%
+                   c("Prol.tumor cell", "Tumor cell")] <- "Tumor"
+
+obj$Figure1_type[obj$celltype.1 == "Myeloid cell"] <- "Myeloid"
+obj$Figure1_type[obj$celltype.1 == "NK/T cell"] <- "T/NK"
+obj$Figure1_type[obj$celltype.1 == "Oligodendrocyte"] <- "Glial"
+obj$Figure1_type[obj$celltype.1 == "Stromal cell"] <- "Fibroblast/Mural"
+
+# ============================================================
+# 3. CLEC4E+ EC
+# ============================================================
+
+CLEC4E_new <- subset(
+  GBM_EC11,
+  subset = CLEC4E > 0
+)
+
+CLEC4E_old <- subset(
+  EC_old,
+  subset = Disease == "GBM" &
+    Vascular_type == "Capillary EC" &
+    CLEC4E > 0
+)
+
+# ============================================================
+# 4. 其他细胞
+# ============================================================
+
+Tumor <- subset(obj, subset = Figure1_type == "Tumor")
+Myeloid <- subset(obj, subset = Figure1_type == "Myeloid")
+TNK <- subset(obj, subset = Figure1_type == "T/NK")
+Glial <- subset(obj, subset = Figure1_type == "Glial")
+FibroMural <- subset(obj, subset = Figure1_type == "Fibroblast/Mural")
+
+# ============================================================
+# 5. 每组最多1000
+# ============================================================
+
+set.seed(123)
+
+sample_cells <- function(x, n = 1000) {
+  if (ncol(x) > n) {
+    x[, sample(colnames(x), n)]
+  } else {
+    x
+  }
+}
+
+Tumor <- sample_cells(Tumor)
+Myeloid <- sample_cells(Myeloid)
+TNK <- sample_cells(TNK)
+Glial <- sample_cells(Glial)
+FibroMural <- sample_cells(FibroMural)
+CLEC4E_old <- sample_cells(CLEC4E_old)
+CLEC4E_new <- sample_cells(CLEC4E_new)
+
+# ============================================================
+# 6. counts
+# ============================================================
+
+get_counts <- function(x) {
+  GetAssayData(
+    x,
+    assay = "RNA",
+    layer = "counts"
+  )
+}
+
+mat_Tumor <- get_counts(Tumor)
+mat_Myeloid <- get_counts(Myeloid)
+mat_TNK <- get_counts(TNK)
+mat_Glial <- get_counts(Glial)
+mat_FibroMural <- get_counts(FibroMural)
+
+mat_CLEC4E_old <- get_counts(CLEC4E_old)
+mat_CLEC4E_new <- get_counts(CLEC4E_new)
+
+# ============================================================
+# 7. 合并 CLEC4E EC
+# ============================================================
+
+genes_ec <- intersect(
+  rownames(mat_CLEC4E_old),
+  rownames(mat_CLEC4E_new)
+)
+
+mat_CLEC4E <- cbind(
+  mat_CLEC4E_old[genes_ec, , drop = FALSE],
+  mat_CLEC4E_new[genes_ec, , drop = FALSE]
+)
+
+# ============================================================
+# 8. 统一基因
+# ============================================================
+
+genes <- Reduce(
+  intersect,
+  list(
+    rownames(mat_Tumor),
+    rownames(mat_Myeloid),
+    rownames(mat_TNK),
+    rownames(mat_Glial),
+    rownames(mat_FibroMural),
+    rownames(mat_CLEC4E)
+  )
+)
+
+mat_Tumor <- mat_Tumor[genes, , drop = FALSE]
+mat_Myeloid <- mat_Myeloid[genes, , drop = FALSE]
+mat_TNK <- mat_TNK[genes, , drop = FALSE]
+mat_Glial <- mat_Glial[genes, , drop = FALSE]
+mat_FibroMural <- mat_FibroMural[genes, , drop = FALSE]
+mat_CLEC4E <- mat_CLEC4E[genes, , drop = FALSE]
+
+# ============================================================
+# 9. iTALK matrix
+# ============================================================
+
+colnames(mat_Tumor) <- paste0("Tumor_", seq_len(ncol(mat_Tumor)))
+colnames(mat_Myeloid) <- paste0("Myeloid_", seq_len(ncol(mat_Myeloid)))
+colnames(mat_TNK) <- paste0("TNK_", seq_len(ncol(mat_TNK)))
+colnames(mat_Glial) <- paste0("Glial_", seq_len(ncol(mat_Glial)))
+colnames(mat_FibroMural) <- paste0(
+  "FibroMural_", seq_len(ncol(mat_FibroMural))
+)
+colnames(mat_CLEC4E) <- paste0(
+  "CLEC4E_EC_", seq_len(ncol(mat_CLEC4E))
+)
+
+expr <- cbind(
+  mat_Tumor,
+  mat_Myeloid,
+  mat_TNK,
+  mat_Glial,
+  mat_FibroMural,
+  mat_CLEC4E
+)
+
+data <- as.data.frame(t(as.matrix(expr)))
+
+data$cell_type <- sub(
+  "_.*",
+  "",
+  rownames(data)
+)
+
+data$compare_group <- "GBM"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+expr_data <- data %>%
+  dplyr::select(-cell_type, -compare_group)
+
+highly_exprs_genes <- rawParse(
+  expr_data,
+  top_genes = 50,
+  stats = "mean"
+)
+
+head(highly_exprs_genes)
+data2 <- data
+
+expr_cols <- setdiff(
+  colnames(data2),
+  c("cell_type", "compare_group")
+)
+
+data2[expr_cols] <- lapply(
+  data2[expr_cols],
+  function(x) as.numeric(as.character(x))
+)
+
+highly_exprs_genes <- rawParse(
+  data2,
+  top_genes = 50,
+  stats = "mean"
+)
+
+head(highly_exprs_genes)
+
+data2 <- data %>%
+  dplyr::select(-compare_group)
+
+highly_exprs_genes <- rawParse(
+  data2,
+  top_genes = 50,
+  stats = "mean"
+)
+
+head(highly_exprs_genes)
+table(highly_exprs_genes$cell_type)
+
+head(highly_exprs_genes)
+unique(highly_exprs_genes$cell_type)
+
+
+
+# ============================================================
+# 1. 通讯类型
+# ============================================================
+
+comm_list <- c(
+  "growth factor",
+  "other",
+  "cytokine",
+  "checkpoint"
+)
+
+
+# ============================================================
+# 2. 细胞颜色
+# ============================================================
+
+cell_col <- c(
+  "Tumor"      = "#F29AB8",
+  "Myeloid"    = "#82C5E8",
+  "TNK"        = "#A9D8F2",
+  "Glial"      = "#FFD58F",
+  "FibroMural" = "#9ED9AF",
+  "CLEC4E"     = "#52B3FF"
+)
+
+
+# ============================================================
+# 3. 全部 LR 分析
+# ============================================================
+
+res_list <- list()
+
+for (comm_type in comm_list) {
+  
+  res_cat <- FindLR(
+    highly_exprs_genes,
+    datatype = "mean count",
+    comm_type = comm_type
+  )
+  
+  res_cat <- res_cat[
+    order(
+      res_cat$cell_from_mean_exprs *
+        res_cat$cell_to_mean_exprs,
+      decreasing = TRUE
+    ),
+  ]
+  
+  res_list[[comm_type]] <- res_cat
+}
+
+res <- do.call(rbind, res_list)
+
+res <- na.omit(res)
+
+
+# ============================================================
+# 4. 查看全部 LR 结果
+# ============================================================
+
+dim(res)
+
+table(res$comm_type)
+
+head(res, 20)
+
+
+# ============================================================
+# 5. 提取 CLEC4E+ EC 相关 LR
+# ============================================================
+
+CLEC4E_LR <- res[
+  res$cell_from == "CLEC4E" |
+    res$cell_to == "CLEC4E",
+]
+
+CLEC4E_LR$interaction_score <-
+  CLEC4E_LR$cell_from_mean_exprs *
+  CLEC4E_LR$cell_to_mean_exprs
+
+CLEC4E_LR$other_cell <- ifelse(
+  CLEC4E_LR$cell_from == "CLEC4E",
+  CLEC4E_LR$cell_to,
+  CLEC4E_LR$cell_from
+)
+
+
+# ============================================================
+# 6. Incoming / Outgoing
+# ============================================================
+
+CLEC4E_incoming <- CLEC4E_LR %>%
+  dplyr::filter(
+    cell_to == "CLEC4E",
+    cell_from != "CLEC4E"
+  ) %>%
+  dplyr::arrange(desc(interaction_score))
+
+CLEC4E_outgoing <- CLEC4E_LR %>%
+  dplyr::filter(
+    cell_from == "CLEC4E",
+    cell_to != "CLEC4E"
+  ) %>%
+  dplyr::arrange(desc(interaction_score))
+
+
+# ============================================================
+# 7. 每个细胞群 Incoming Top10
+# ============================================================
+
+top10_incoming <- CLEC4E_incoming %>%
+  dplyr::group_by(cell_from) %>%
+  dplyr::slice_max(
+    order_by = interaction_score,
+    n = 10,
+    with_ties = FALSE
+  ) %>%
+  dplyr::ungroup()
+
+top10_incoming %>%
+  dplyr::select(
+    cell_from,
+    ligand,
+    receptor,
+    interaction_score,
+    comm_type
+  ) %>%
+  dplyr::arrange(
+    cell_from,
+    desc(interaction_score)
+  ) %>%
+  print(n = 50)
+
+
+# ============================================================
+# 8. 每个细胞群 Outgoing Top10
+# ============================================================
+
+top10_outgoing <- CLEC4E_outgoing %>%
+  dplyr::group_by(cell_to) %>%
+  dplyr::slice_max(
+    order_by = interaction_score,
+    n = 10,
+    with_ties = FALSE
+  ) %>%
+  dplyr::ungroup()
+
+top10_outgoing %>%
+  dplyr::select(
+    cell_to,
+    ligand,
+    receptor,
+    interaction_score,
+    comm_type
+  ) %>%
+  dplyr::arrange(
+    cell_to,
+    desc(interaction_score)
+  ) %>%
+  print(n = 50)
+
+
+# ============================================================
+# 9. 去除 CLEC4E 自身互作
+# ============================================================
+
+plot_res <- CLEC4E_LR %>%
+  dplyr::filter(other_cell != "CLEC4E")
+
+
+# ============================================================
+# 10. 去除广泛表达 / 管家型信号
+# ============================================================
+
+remove_genes <- c(
+  "B2M","HLA-A","HLA-B","HLA-C","HLA-DRA","HLA-DRB1","CANX",
+  "RPS19","RPLP0","RPL3","RPL4","RPL5","RPL6","RPL7","RPL8",
+  "RPL9","RPL10","RPL11","RPL12","RPL13","RPL14","RPL15",
+  "RPL18","RPL19","RPL21","RPL22","RPL23","RPL24","RPL27",
+  "RPL28","RPL30","RPL31","RPL32","RPL34","RPL35","RPL36",
+  "RPS2","RPS3","RPS4X","RPS6","RPS7","RPS8","RPS9","RPS10",
+  "RPS11","RPS12","RPS14","RPS15","RPS16","RPS18","RPS20",
+  "RPS21","RPS23","RPS24","RPS25","RPS27","RPS28","RPS29"
+)
+
+plot_res <- plot_res %>%
+  dplyr::filter(
+    !ligand %in% remove_genes,
+    !receptor %in% remove_genes
+  )
+
+
+# ============================================================
+# 11. 保留重点候选 LR
+# ============================================================
+
+keep_lr <- data.frame(
+  ligand = c(
+    "SPP1",
+    "APP",
+    "CTGF",
+    "FN1",
+    "FN1",
+    "FN1",
+    "COL1A1",
+    "COL1A2",
+    "COL3A1",
+    "CXCL12",
+    "CTGF",
+    "VEGFA",
+    "VEGFA",
+    "PDGFB",
+    "HBEGF",
+    "IL1B",
+    "CX3CL1",
+    "IL6",
+    "IL11"
+  ),
+  receptor = c(
+    "ITGB1",
+    "CD74",
+    "ITGB2",
+    "ITGB1",
+    "ITGA6",
+    "ROBO4",
+    "ITGB1",
+    "ITGB1",
+    "ITGB1",
+    "ITGB1",
+    "LRP1",
+    "FLT1",
+    "ITGB1",
+    "PDGFRA",
+    "EGFR",
+    "IL1R1",
+    "CX3CR1",
+    "IL6ST",
+    "IL6ST"
+  )
+)
+
+
+# ============================================================
+# 12. 筛选重点 LR
+# ============================================================
+
+plot_res2 <- plot_res %>%
+  dplyr::inner_join(
+    keep_lr,
+    by = c("ligand", "receptor")
+  ) %>%
+  dplyr::distinct(
+    ligand,
+    receptor,
+    cell_from,
+    cell_to,
+    .keep_all = TRUE
+  )
+
+
+# ============================================================
+# 13. 查看筛选后的全部 LR
+# ============================================================
+plot_res2 %>%
+  dplyr::select(
+    ligand,
+    receptor,
+    cell_from,
+    cell_to,
+    interaction_score,
+    comm_type
+  ) %>%
+  dplyr::arrange(desc(interaction_score)) %>%
+  as.data.frame()
+
+
+# ============================================================
+# 14. 每种通讯类型取 Top15
+# ============================================================
+
+top15_plot <- plot_res2 %>%
+  dplyr::group_by(comm_type) %>%
+  dplyr::slice_max(
+    order_by = interaction_score,
+    n = 15,
+    with_ties = FALSE
+  ) %>%
+  dplyr::ungroup()
+
+
+# ============================================================
+# 15. 查看每种通讯类型
+# ============================================================
+
+for (x in unique(top15_plot$comm_type)) {
+  
+  cat(
+    "\n================",
+    x,
+    "================\n"
+  )
+  
+  print(
+    top15_plot %>%
+      dplyr::filter(comm_type == x) %>%
+      dplyr::arrange(desc(interaction_score)) %>%
+      dplyr::select(
+        ligand,
+        receptor,
+        cell_from,
+        cell_to,
+        interaction_score
+      )
+  )
+}
+
+
+# ============================================================
+# 16. 删除之前确定的冗余互作
+# ============================================================
+
+plot_final <- top15_plot %>%
+  dplyr::filter(
+    
+    !(
+      comm_type == "growth factor" &
+        (
+          (ligand == "VEGFA" & receptor == "NRP1") |
+            (ligand == "HBEGF" & receptor == "CD9") |
+            (
+              ligand == "CTGF" &
+                receptor == "LRP1" &
+                cell_to == "Tumor"
+            )
+        )
+    ),
+    
+    !(
+      comm_type == "other" &
+        (
+          (ligand == "TIMP1" & receptor == "CD63") |
+            (ligand == "CALM1" & receptor == "EGFR")
+        )
+    ),
+    
+    !(
+      comm_type == "cytokine" &
+        (
+          (
+            ligand == "CXCL12" &
+              receptor == "ITGB1" &
+              cell_to %in% c(
+                "Myeloid",
+                "Glial",
+                "Tumor"
+              )
+          ) |
+            (
+              ligand == "CXCL12" &
+                receptor == "CD4"
+            )
+        )
+    )
+  )
+
+
+# ============================================================
+# 17. 查看最终保留数量
+# ============================================================
+
+table(plot_final$comm_type)
+
+nrow(plot_final)
+
+plot_final %>%
+  dplyr::select(
+    ligand,
+    receptor,
+    cell_from,
+    cell_to,
+    interaction_score,
+    comm_type
+  ) %>%
+  dplyr::arrange(desc(interaction_score)) %>%
+  print(n = Inf)
+
+
+# ============================================================
+# 18. 环形图
+# ============================================================
+
+library(iTALK)
+library(circlize)
+library(grid)
+library(scales)
+
+cell_col <- c(
+  "Tumor"      = "#F29AB8",
+  "Myeloid"    = "#82C5E8",
+  "TNK"        = "#A9D8F2",
+  "Glial"      = "#FFD58F",
+  "FibroMural" = "#9ED9AF",
+  "CLEC4E"     = "#52B3FF"
+)
+
+
+# ============================================================
+# 19. 根据表达量设置线条粗细
+# 不改变箭头大小
+# ============================================================
+
+plot_res2 <- plot_final
+
+plot_res2$line_width <- scales::rescale(
+  as.numeric(plot_res2$cell_from_mean_exprs),
+  to = c(1, 6)
+)
+
+
+# ============================================================
+# 20. 预览
+# ============================================================
+
+LRPlot(
+  plot_res2,
+  datatype = "mean count",
+  transparency = 0,
+  cell_col = cell_col,
+  link.arr.lwd = plot_res2$line_width,
+  link.arr.col = "red",
+  print.cell = TRUE,
+  track.height_1 = uh(1, "mm"),
+  track.height_2 = uh(15, "mm"),
+  text.vjust = "0.5cm"
+)
+
+exists("plot_final")
+exists("plot_res2")
+exists("top15_plot")
+exists("CLEC4E_LR")
+exists("res")
+
+
+nrow(plot_res2)
+
+table(plot_res2$comm_type)
+
+plot_res2 %>%
+  dplyr::select(
+    ligand,
+    receptor,
+    cell_from,
+    cell_to,
+    interaction_score,
+    cell_from_mean_exprs,
+    line_width,
+    comm_type
+  ) %>%
+  dplyr::arrange(comm_type, desc(interaction_score))
+
+
+# 看 CLEC4E_LR 中是否还包含原来的 checkpoint
+table(CLEC4E_LR$comm_type)
+
+nrow(CLEC4E_LR)
+
+
+
+
+
+
+
+keep_48 <- data.frame(
+  ligand = c(
+    "VEGFA","VEGFA","CTGF","VEGFA","PDGFB","VEGFA","PGF","VEGFA",
+    "CTGF","VEGFA","HBEGF","TGFB1",
+    "SPP1","APP","FN1","FN1","FN1","COL1A1","COL1A2","SPP1","SPP1","COL3A1",
+    "IL6","CXCL12","CXCL12","CXCL12","CXCL12","IL1B","IL11","IL1B","IL6","CX3CL1","CXCL12",
+    "LGALS9","TNFSF14","TNFSF14","TNFSF4","TNFRSF4","TNFSF14","CD24","CD40LG",
+    "TNFSF14","LGALS9","LGALS9","TNFSF14","TNFSF9","ICOSLG","TNFSF14"
+  ),
+  receptor = c(
+    "ITGB1","FLT1","ITGB2","ITGB1","PDGFRA","FLT1","FLT1","ITGB1",
+    "LRP1","FLT1","EGFR","ENG",
+    "ITGB1","CD74","ITGB1","ITGA6","ROBO4","ITGB1","ITGB1","ITGB1","S1PR1","ITGB1",
+    "IL6ST","ITGB1","ITGB1","CXCR4","CXCR4","IL1R1","IL6ST","ADRB2","IL6ST","CX3CR1","ITGB1",
+    "HAVCR2","TNFRSF14","LTBR","TNFRSF4","TNFSF4","TNFRSF6B","SIGLEC10","CD40",
+    "TNFRSF14","HAVCR2","HAVCR2","LTBR","TRAF2","ICOS","TNFRSF6B"
+  ),
+  cell_from = c(
+    "Tumor","Tumor","CLEC4E","FibroMural","CLEC4E","FibroMural","FibroMural","Myeloid",
+    "CLEC4E","Myeloid","CLEC4E","FibroMural",
+    "Myeloid","CLEC4E","FibroMural","FibroMural","FibroMural","FibroMural","FibroMural","Glial","Myeloid","FibroMural",
+    "FibroMural","CLEC4E","FibroMural","CLEC4E","CLEC4E","Myeloid","FibroMural","Myeloid","Myeloid","CLEC4E","Tumor",
+    "CLEC4E","TNK","TNK","FibroMural","CLEC4E","TNK","CLEC4E","TNK",
+    "Myeloid","CLEC4E","Myeloid","Myeloid","Glial","CLEC4E","Myeloid"
+  ),
+  cell_to = c(
+    "CLEC4E","CLEC4E","Myeloid","CLEC4E","Tumor","CLEC4E","CLEC4E","CLEC4E",
+    "FibroMural","CLEC4E","Tumor","CLEC4E",
+    "CLEC4E","Myeloid","CLEC4E","CLEC4E","CLEC4E","CLEC4E","CLEC4E","CLEC4E","CLEC4E","CLEC4E",
+    "CLEC4E","FibroMural","CLEC4E","TNK","Myeloid","CLEC4E","CLEC4E","CLEC4E","CLEC4E","Myeloid","CLEC4E",
+    "Myeloid","CLEC4E","CLEC4E","CLEC4E","FibroMural","CLEC4E","Myeloid","CLEC4E",
+    "CLEC4E","TNK","CLEC4E","CLEC4E","CLEC4E","TNK","CLEC4E"
+  )
+)
+
+plot_48 <- CLEC4E_LR %>%
+  inner_join(
+    keep_48,
+    by = c("ligand","receptor","cell_from","cell_to")
+  ) %>%
+  distinct(ligand,receptor,cell_from,cell_to,.keep_all = TRUE)
+
+nrow(plot_48)
+table(plot_48$comm_type)
+
+plot_48$line_width <- scales::rescale(
+  as.numeric(plot_48$cell_from_mean_exprs),
+  to = c(1, 6)
+)
+
+plot_48 %>%
+  dplyr::select(
+    comm_type,
+    ligand,
+    receptor,
+    cell_from,
+    cell_to,
+    interaction_score,
+    cell_from_mean_exprs,
+    line_width
+  ) %>%
+  dplyr::arrange(comm_type, desc(line_width))
+plot_48$line_width <- scales::rescale(
+  as.numeric(plot_48$cell_from_mean_exprs),
+  to = c(1, 6)
+)
+
+LRPlot(
+  plot_48,
+  datatype = "mean count",
+  transparency = 0,
+  cell_col = cell_col,
+  link.arr.lwd = plot_48$line_width,
+  link.arr.col = "red",
+  print.cell = TRUE,
+  track.height_1 = uh(1, "mm"),
+  track.height_2 = uh(15, "mm"),
+  text.vjust = "0.5cm"
+)
+# ============================================================
+# 21. 保存 PDF
+# ============================================================
+saveRDS(
+  plot_48,
+  "/home/data/t030736/Figure_3/CLEC4E_iTALK_plot_48.rds"
+)
+pdf(
+  "/home/data/t030736/Figure_3/Figure_3_CLEC4E_iTALK.pdf",
+  width = 8,
+  height = 8
+)
+
+LRPlot(
+  plot_res2,
+  datatype = "mean count",
+  transparency = 0,
+  cell_col = cell_col,
+  link.arr.lwd = plot_res2$line_width,
+  link.arr.col = "red",
+  print.cell = TRUE,
+  track.height_1 = uh(1, "mm"),
+  track.height_2 = uh(15, "mm"),
+  text.vjust = "0.5cm"
+)
+
+dev.off()
+
+
+# ============================================================
+# 22. 最终图中所有 LR
+# ============================================================
+
+plot_res2 %>%
+  dplyr::select(
+    ligand,
+    receptor,
+    cell_from,
+    cell_to,
+    interaction_score,
+    line_width,
+    comm_type
+  ) %>%
+  dplyr::arrange(desc(interaction_score)) %>%
+  print(n = Inf)
+
+
+
+plot_noTumorGlial <- plot_48 %>%
+  dplyr::filter(
+    cell_from != "Tumor",
+    cell_to != "Tumor",
+    cell_from != "Glial",
+    cell_to != "Glial"
+  )
+
+nrow(plot_noTumorGlial)
+table(plot_noTumorGlial$comm_type)
+plot_noTumorGlialTNK <- plot_noTumorGlial %>%
+  dplyr::filter(
+    cell_from != "TNK",
+    cell_to != "TNK"
+  )
+
+nrow(plot_noTumorGlialTNK)
+table(plot_noTumorGlialTNK$comm_type)
+plot_noTumorGlialTNK$line_width <- scales::rescale(
+  as.numeric(plot_noTumorGlialTNK$cell_from_mean_exprs),
+  to = c(1, 6)
+)
+
+LRPlot(
+  plot_noTumorGlialTNK,
+  datatype = "mean count",
+  transparency = 0,
+  cell_col = cell_col,
+  link.arr.lwd = plot_noTumorGlialTNK$line_width,
+  link.arr.col = "red",
+  print.cell = TRUE,
+  track.height_1 = uh(1, "mm"),
+  track.height_2 = uh(15, "mm"),
+  text.vjust = "0.5cm"
+)
+saveRDS(
+  plot_noTumorGlialTNK,
+  "/home/data/t030736/Figure_3/Figure_3_CLEC4E_iTALK.rds"
+)
+pdf(
+  "/home/data/t030736/Figure_3/Figure_3_CLEC4E_iTALK.pdf",
+  width = 8,
+  height = 8
+)
+
+LRPlot(
+  plot_noTumorGlialTNK,
+  datatype = "mean count",
+  transparency = 0,
+  cell_col = cell_col,
+  link.arr.lwd = plot_noTumorGlialTNK$line_width,
+  link.arr.col = "red",
+  print.cell = TRUE,
+  track.height_1 = uh(1, "mm"),
+  track.height_2 = uh(15, "mm"),
+  text.vjust = "0.5cm"
+)
+
+dev.off()
