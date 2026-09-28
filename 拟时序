@@ -1,0 +1,874 @@
+rm(list = ls())
+
+# ============================================================
+# 0. 加载包
+# ============================================================
+
+library(Seurat)
+library(SingleCellExperiment)
+library(slingshot)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(grid)
+
+# ============================================================
+# 1. 输出目录
+# ============================================================
+
+outdir <- "/home/data/t030736/Figure_3"
+
+dir.create(
+  outdir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# ============================================================
+# 2. 读取数据
+# ============================================================
+
+EC <- readRDS(
+  "/home/data/t030736/Endothelial/GBM_EC_Vascular_7types.rds"
+)
+
+DefaultAssay(EC) <- "RNA"
+
+# ============================================================
+# 3. 提取 Capillary EC
+# ============================================================
+
+Capillary <- subset(
+  EC,
+  subset = Vascular_type == "Capillary EC"
+)
+
+DefaultAssay(Capillary) <- "RNA"
+
+# ============================================================
+# 4. Capillary EC 重新降维和聚类
+# ============================================================
+
+Capillary <- FindVariableFeatures(
+  Capillary,
+  selection.method = "vst",
+  nfeatures = 3000,
+  verbose = FALSE
+)
+
+Capillary <- ScaleData(
+  Capillary,
+  features = VariableFeatures(Capillary),
+  verbose = FALSE
+)
+
+Capillary <- RunPCA(
+  Capillary,
+  features = VariableFeatures(Capillary),
+  npcs = 30,
+  verbose = FALSE
+)
+
+Capillary <- FindNeighbors(
+  Capillary,
+  dims = 1:20,
+  verbose = FALSE
+)
+
+set.seed(123)
+
+Capillary <- FindClusters(
+  Capillary,
+  graph.name = "RNA_snn",
+  algorithm = 4,
+  resolution = 0.2,
+  random.seed = 123,
+  verbose = FALSE
+)
+
+Capillary <- RunUMAP(
+  Capillary,
+  reduction = "pca",
+  dims = 1:20,
+  verbose = FALSE
+)
+
+table(Capillary$seurat_clusters)
+
+# ============================================================
+# 5. tSNE
+# ============================================================
+
+Capillary <- RunTSNE(
+  Capillary,
+  reduction = "pca",
+  dims = 1:20,
+  reduction.name = "tsne",
+  reduction.key = "tSNE_",
+  check_duplicates = FALSE,
+  verbose = FALSE
+)
+
+# ============================================================
+# 6. Marker genes
+# ============================================================
+
+markers <- FindAllMarkers(
+  Capillary,
+  only.pos = TRUE,
+  min.pct = 0.1,
+  logfc.threshold = 0.25
+)
+
+markers %>%
+  group_by(cluster) %>%
+  slice_max(
+    order_by = avg_log2FC,
+    n = 15
+  ) %>%
+  arrange(
+    cluster,
+    desc(avg_log2FC)
+  )
+
+# ============================================================
+# 7. 关键基因
+# ============================================================
+
+key_genes <- c(
+  "CLEC4E",
+  "CTGF",
+  "CCN2",
+  "IGFBP3",
+  "MATN3",
+  "SLC16A1",
+  "MFSD2A",
+  "ABCB1",
+  "ABCG2",
+  "CA4",
+  "RGCC",
+  "KDR",
+  "ESM1",
+  "PLVAP",
+  "PECAM1",
+  "VWF"
+)
+
+key_genes <- intersect(
+  key_genes,
+  rownames(Capillary)
+)
+
+# ============================================================
+# 8. 查看关键基因表达
+# ============================================================
+
+DotPlot(
+  Capillary,
+  features = key_genes,
+  group.by = "seurat_clusters"
+) +
+  RotatedAxis()
+
+avg <- AverageExpression(
+  Capillary,
+  assays = "RNA",
+  features = key_genes,
+  group.by = "seurat_clusters"
+)$RNA
+
+round(avg, 2)
+
+# ============================================================
+# 9. 转换为 SingleCellExperiment
+# ============================================================
+
+Capillary <- JoinLayers(Capillary)
+
+sce <- as.SingleCellExperiment(Capillary)
+
+# ============================================================
+# 10. Slingshot
+#
+# Cluster 3 → Cluster 1
+# Lineage 3
+# ============================================================
+
+sce <- slingshot(
+  sce,
+  clusterLabels = "seurat_clusters",
+  reducedDim = "PCA",
+  start.clus = "3",
+  end.clus = "2"
+)
+
+sds <- SlingshotDataSet(sce)
+
+sds@lineages
+
+# ============================================================
+# 11. 查看 lineage
+# ============================================================
+
+print(sds@lineages)
+
+# ============================================================
+# 12. Lineage 3 pseudotime
+# ============================================================
+
+pt3 <- slingPseudotime(
+  sce
+)[, 3]
+
+summary(pt3)
+
+# ============================================================
+# 13. 保存 Slingshot 数据
+# ============================================================
+
+saveRDS(
+  Capillary,
+  file.path(
+    outdir,
+    "Capillary_Slingshot.rds"
+  )
+)
+
+saveRDS(
+  sce,
+  file.path(
+    outdir,
+    "Capillary_Slingshot_sce.rds"
+  )
+)
+
+saveRDS(
+  pt3,
+  file.path(
+    outdir,
+    "Lineage3_pseudotime.rds"
+  )
+)
+
+# ============================================================
+# ============================================================
+# Figure 3A
+# CLEC4E+ Capillary EC pseudotime
+#
+# Lineage 3:
+# Cluster 3 → Cluster 1
+#
+# 其他细胞灰色
+# ============================================================
+# ============================================================
+
+# ------------------------------------------------------------
+# 14. tSNE 坐标
+# ------------------------------------------------------------
+
+tsne_df <- as.data.frame(
+  Embeddings(
+    Capillary,
+    "tsne"
+  )
+)
+
+tsne_df$cell <- rownames(tsne_df)
+
+tsne_df$pseudotime <- pt3
+
+colnames(tsne_df)[1:2] <- c(
+  "tSNE_1",
+  "tSNE_2"
+)
+
+# ------------------------------------------------------------
+# 15. 区分 Lineage 3 和其他细胞
+# ------------------------------------------------------------
+
+tsne_df$lineage <- ifelse(
+  is.na(tsne_df$pseudotime),
+  "Other",
+  "Lineage 3→1"
+)
+
+# ------------------------------------------------------------
+# 16. Figure 3A 基础图
+# ------------------------------------------------------------
+
+p_pt <- ggplot(
+  tsne_df,
+  aes(
+    x = tSNE_1,
+    y = tSNE_2
+  )
+) +
+
+  # 其他细胞
+  geom_point(
+    data = subset(
+      tsne_df,
+      lineage == "Other"
+    ),
+    color = "grey85",
+    size = 0.45,
+    alpha = 0.7
+  ) +
+
+  # Lineage 3
+  geom_point(
+    data = subset(
+      tsne_df,
+      lineage == "Lineage 3→1"
+    ),
+    aes(
+      color = pseudotime
+    ),
+    size = 0.55,
+    alpha = 0.95
+  ) +
+
+  scale_color_gradientn(
+    colours = c(
+      "#313695",
+      "#4575B4",
+      "#74ADD1",
+      "#ABD9E9",
+      "#FFFFBF",
+      "#FDAE61",
+      "#F46D43",
+      "#D73027"
+    ),
+    name = "Pseudotime"
+  ) +
+
+  theme_classic() +
+
+  theme(
+    aspect.ratio = 1,
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  )
+
+p_pt
+
+# ------------------------------------------------------------
+# 17. 构建 Lineage 3 trajectory
+#
+# 使用 pseudotime → tSNE 坐标进行 LOESS 平滑
+# ------------------------------------------------------------
+
+traj_cells <- data.frame(
+  cell = names(pt3),
+  pseudotime = as.numeric(pt3)
+) %>%
+  filter(
+    !is.na(pseudotime)
+  ) %>%
+  left_join(
+    tsne_df[
+      ,
+      c(
+        "cell",
+        "tSNE_1",
+        "tSNE_2"
+      )
+    ],
+    by = "cell"
+  ) %>%
+  arrange(
+    pseudotime
+  )
+
+# ------------------------------------------------------------
+# 18. LOESS trajectory
+# ------------------------------------------------------------
+
+fit_x <- loess(
+  tSNE_1 ~ pseudotime,
+  data = traj_cells,
+  span = 0.5
+)
+
+fit_y <- loess(
+  tSNE_2 ~ pseudotime,
+  data = traj_cells,
+  span = 0.5
+)
+
+pt_grid <- seq(
+  min(
+    traj_cells$pseudotime
+  ),
+  max(
+    traj_cells$pseudotime
+  ),
+  length.out = 150
+)
+
+traj <- data.frame(
+  pseudotime = pt_grid,
+  tSNE_1 = predict(
+    fit_x,
+    pt_grid
+  ),
+  tSNE_2 = predict(
+    fit_y,
+    pt_grid
+  )
+)
+
+# ------------------------------------------------------------
+# 19. 加入 trajectory
+# ------------------------------------------------------------
+
+p_traj <- p_pt +
+
+  geom_path(
+    data = traj,
+    aes(
+      x = tSNE_1,
+      y = tSNE_2
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.8,
+    color = "#6A3D9A",
+    lineend = "round"
+  )
+
+p_traj
+
+# ------------------------------------------------------------
+# 20. Figure 3A 最终图
+# ------------------------------------------------------------
+
+p_final <- p_traj +
+
+  annotate(
+    "label",
+    x = traj$tSNE_1[1] - 0.8,
+    y = traj$tSNE_2[1] + 1.0,
+    label = "BBB稳定状态",
+    size = 4.5,
+    fontface = "bold",
+    fill = "white",
+    color = "#313695",
+    label.size = 0.25
+  ) +
+
+  annotate(
+    "label",
+    x = traj$tSNE_1[nrow(traj)] + 0.8,
+    y = traj$tSNE_2[nrow(traj)] - 1.0,
+    label = "活化状态",
+    size = 4.5,
+    fontface = "bold",
+    fill = "white",
+    color = "#D73027",
+    label.size = 0.25
+  )
+
+p_final
+
+# ------------------------------------------------------------
+# 21. 保存 Figure 3A
+# ------------------------------------------------------------
+
+ggsave(
+  file.path(
+    outdir,
+    "Figure_3A_CLEC4E_pseudotime.pdf"
+  ),
+  p_final,
+  width = 7,
+  height = 7,
+  units = "in"
+)
+
+saveRDS(
+  p_final,
+  file.path(
+    outdir,
+    "Figure_3A_CLEC4E_pseudotime.rds"
+  )
+)
+
+# ============================================================
+# ============================================================
+# Figure 3B
+# Key genes along pseudotime
+# ============================================================
+# ============================================================
+
+# ------------------------------------------------------------
+# 22. Lineage 3 cells
+# ------------------------------------------------------------
+
+lineage3_cells <- names(
+  pt3
+)[
+  !is.na(pt3)
+]
+
+length(
+  lineage3_cells
+)
+
+# ------------------------------------------------------------
+# 23. 检查 assay
+# ------------------------------------------------------------
+
+assayNames(sce)
+
+# ------------------------------------------------------------
+# 24. 提取 log-normalized expression
+# ------------------------------------------------------------
+
+expr_mat <- assay(
+  sce,
+  "logcounts"
+)[
+  ,
+  lineage3_cells,
+  drop = FALSE
+]
+
+# ------------------------------------------------------------
+# 25. pseudotime
+# ------------------------------------------------------------
+
+pt3_use <- pt3[
+  lineage3_cells
+]
+
+# ============================================================
+# 26. Key gene 与 pseudotime 的 Spearman correlation
+# ============================================================
+
+cor_genes <- c(
+  "MFSD2A",
+  "ABCG2",
+  "ABCB1",
+  "RGCC",
+  "CA4",
+  "CLEC4E",
+  "CCN2",
+  "IGFBP3",
+  "MATN3",
+  "SLC16A1",
+  "CTGF"
+)
+
+cor_genes <- intersect(
+  cor_genes,
+  rownames(expr_mat)
+)
+
+gene_cor <- data.frame(
+  gene = cor_genes,
+  rho = sapply(
+    cor_genes,
+    function(g) {
+      
+      cor(
+        as.numeric(
+          expr_mat[g, ]
+        ),
+        as.numeric(
+          pt3_use
+        ),
+        method = "spearman",
+        use = "complete.obs"
+      )
+      
+    }
+  )
+)
+
+gene_cor <- gene_cor[
+  order(
+    gene_cor$rho,
+    decreasing = TRUE
+  ),
+]
+
+gene_cor
+
+write.csv(
+  gene_cor,
+  file.path(
+    outdir,
+    "Figure_3B_key_gene_pseudotime_correlation.csv"
+  ),
+  row.names = FALSE
+)
+
+# ============================================================
+# 27. Figure 3B 五个核心基因
+# ============================================================
+
+plot_genes <- c(
+  "MFSD2A",
+  "CA4",
+  "ABCG2",
+  "CCN2",
+  "IGFBP3"
+)
+
+# ------------------------------------------------------------
+# 28. 提取表达矩阵
+# ------------------------------------------------------------
+
+plot_df <- data.frame(
+  pseudotime = pt3_use,
+  t(
+    expr_mat[
+      plot_genes,
+      ,
+      drop = FALSE
+    ]
+  )
+)
+
+colnames(
+  plot_df
+)[-1] <- plot_genes
+
+# ------------------------------------------------------------
+# 29. 转成长格式
+# ------------------------------------------------------------
+
+plot_long <- plot_df %>%
+  pivot_longer(
+    cols = all_of(plot_genes),
+    names_to = "gene",
+    values_to = "expression"
+  )
+
+# ============================================================
+# 30. Figure 3B 颜色
+# ============================================================
+
+gene_col <- c(
+  MFSD2A = "#4575B4",
+  CA4    = "#4575B4",
+  ABCG2  = "#4575B4",
+  CCN2   = "#D73027",
+  IGFBP3 = "#D73027"
+)
+
+# ============================================================
+# 31. Figure 3B 合并版
+# ============================================================
+
+p_gene <- ggplot(
+  plot_long,
+  aes(
+    x = pseudotime,
+    y = expression
+  )
+) +
+
+  # 背景单细胞
+  geom_point(
+    size = 0.35,
+    alpha = 0.18,
+    color = "#C7D3E0"
+  ) +
+
+  # LOESS趋势
+  geom_smooth(
+    aes(
+      color = gene,
+      fill = gene
+    ),
+    method = "loess",
+    se = TRUE,
+    linewidth = 1.2
+  ) +
+
+  facet_wrap(
+    ~ gene,
+    scales = "free_y",
+    ncol = 3
+  ) +
+
+  scale_color_manual(
+    values = gene_col
+  ) +
+
+  scale_fill_manual(
+    values = gene_col
+  ) +
+
+  theme_classic() +
+
+  theme(
+    legend.position = "none",
+
+    strip.background = element_blank(),
+
+    strip.text = element_text(
+      size = 12,
+      face = "bold"
+    ),
+
+    axis.title = element_text(
+      size = 12,
+      face = "bold"
+    ),
+
+    axis.text = element_text(
+      size = 9
+    ),
+
+    panel.spacing = unit(
+      1.2,
+      "lines"
+    )
+  ) +
+
+  labs(
+    x = "Pseudotime",
+    y = "Expression"
+  )
+
+p_gene
+
+# ============================================================
+# 32. 保存 Figure 3B 合并版
+# ============================================================
+
+ggsave(
+  file.path(
+    outdir,
+    "Figure_3B_key_gene_pseudotime.pdf"
+  ),
+  p_gene,
+  width = 8,
+  height = 6,
+  units = "in"
+)
+
+saveRDS(
+  p_gene,
+  file.path(
+    outdir,
+    "Figure_3B_key_gene_pseudotime.rds"
+  )
+)
+
+# ============================================================
+# 33. 分别保存五个基因
+# ============================================================
+
+for (g in plot_genes) {
+
+  p_single <- ggplot(
+    subset(
+      plot_long,
+      gene == g
+    ),
+    aes(
+      x = pseudotime,
+      y = expression
+    )
+  ) +
+
+    # 背景细胞
+    geom_point(
+      size = 0.35,
+      alpha = 0.18,
+      color = "#C7D3E0"
+    ) +
+
+    # LOESS
+    geom_smooth(
+      aes(
+        color = gene,
+        fill = gene
+      ),
+      method = "loess",
+      se = TRUE,
+      linewidth = 1.2
+    ) +
+
+    scale_color_manual(
+      values = gene_col
+    ) +
+
+    scale_fill_manual(
+      values = gene_col
+    ) +
+
+    theme_classic() +
+
+    theme(
+      legend.position = "none",
+
+      strip.background = element_blank(),
+
+      axis.title = element_text(
+        size = 12,
+        face = "bold"
+      ),
+
+      axis.text = element_text(
+        size = 9
+      ),
+
+      plot.title = element_text(
+        size = 14,
+        face = "bold",
+        hjust = 0.5
+      )
+    ) +
+
+    labs(
+      title = g,
+      x = "Pseudotime",
+      y = "Expression"
+    )
+
+  print(p_single)
+
+  # PDF
+  ggsave(
+    file.path(
+      outdir,
+      paste0(
+        "Figure_3B_",
+        g,
+        "_pseudotime.pdf"
+      )
+    ),
+    p_single,
+    width = 4,
+    height = 4,
+    units = "in"
+  )
+
+  # RDS
+  saveRDS(
+    p_single,
+    file.path(
+      outdir,
+      paste0(
+        "Figure_3B_",
+        g,
+        "_pseudotime.rds"
+      )
+    )
+  )
+}
+
+# ============================================================
+# 34. 最终输出文件
+# ============================================================
+
+list.files(
+  outdir,
+  pattern = "Figure_3[AB]",
+  full.names = TRUE
+)
