@@ -1,0 +1,1135 @@
+# ============================================================
+# Figure 3
+# Pseudotime heatmap of selected endothelial genes
+# Lineage 3: Cluster 3 → Cluster 1
+# ============================================================
+
+rm(list = ls())
+
+library(Seurat)
+library(SingleCellExperiment)
+library(slingshot)
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+# ============================================================
+# 1. 路径
+# ============================================================
+# ============================================================
+# 1. 读取 Slingshot SCE
+# ============================================================
+
+library(SingleCellExperiment)
+library(slingshot)
+
+outdir <- "/home/data/t030736/Figure_3"
+
+sce <- readRDS(
+  file.path(
+    outdir,
+    "Capillary_Slingshot_sce.rds"
+  )
+)
+
+# ============================================================
+# 2. 查看 lineage
+# ============================================================
+
+sds <- SlingshotDataSet(sce)
+
+sds@lineages
+
+
+
+# ============================================================
+# 3. 提取 Lineage 3 pseudotime
+# ============================================================
+
+pt3 <- slingPseudotime(
+  sce
+)[, 3]
+
+summary(pt3)
+
+length(
+  pt3[!is.na(pt3)]
+)
+
+
+# ============================================================
+# 4. 保存
+# ============================================================
+
+saveRDS(
+  pt3,
+  file.path(
+    outdir,
+    "Lineage3_pseudotime.rds"
+  )
+)
+
+
+
+
+
+
+
+
+
+outdir <- "/home/data/t030736/Figure_3"
+
+dir.create(
+  outdir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+sce_file <- file.path(
+  outdir,
+  "Capillary_Slingshot_sce.rds"
+)
+
+pt_file <- file.path(
+  outdir,
+  "Lineage3_pseudotime.rds"
+)
+
+# ============================================================
+# 2. 读取 Slingshot 数据
+# ============================================================
+
+sce <- readRDS(sce_file)
+
+pt3 <- readRDS(pt_file)
+
+# ============================================================
+# 3. 13 个目标基因
+# ============================================================
+genes <- c(
+  
+  # ==========================================================
+  # BBB / homeostatic
+  # ==========================================================
+  "MFSD2A",
+  "CA4",
+  "ABCG2",
+  "ABCB1",
+  "RGCC",
+  "KDR",
+  "FLT1",
+  "EMCN",
+  "RAMP2",
+  "EDNRB",
+  "BTNL9",
+  "ADGRL4",
+  "PECAM1",
+  "VWF",
+  "CLDN5",
+  
+  # ==========================================================
+  # Activated / remodeling
+  # ==========================================================
+  "SLC16A1",
+  "MATN3",
+  "CLEC4E",
+  "CCN2",
+  "IGFBP3",
+  "CTGF",
+  "PLVAP",
+  "ESM1",
+  "ANGPT2",
+  "SPARCL1",
+  "VCAM1",
+  "ICAM1",
+  "SELE",
+  "FN1",
+  "COL4A1"
+)
+
+# ============================================================
+# 4. 检查基因
+# ============================================================
+
+genes_use <- genes[
+  genes %in% rownames(sce)
+]
+
+genes_missing <- setdiff(
+  genes,
+  genes_use
+)
+
+if (length(genes_missing) > 0) {
+  
+  message(
+    "Missing genes: ",
+    paste(
+      genes_missing,
+      collapse = ", "
+    )
+  )
+}
+
+genes_use
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# Figure 3
+# Pseudotime heatmap
+# BBB state → Activated state
+# ============================================================
+
+library(SingleCellExperiment)
+library(slingshot)
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+# ============================================================
+# 1. Path
+# ============================================================
+
+outdir <- "/home/data/t030736/Figure_3"
+
+dir.create(
+  outdir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# ============================================================
+# 2. Read Slingshot SCE
+# ============================================================
+
+sce <- readRDS(
+  file.path(
+    outdir,
+    "Capillary_Slingshot_sce.rds"
+  )
+)
+
+# ============================================================
+# 3. Lineage 3 pseudotime
+# ============================================================
+
+pt3 <- slingPseudotime(
+  sce
+)[, 3]
+
+# 保存
+saveRDS(
+  pt3,
+  file.path(
+    outdir,
+    "Lineage3_pseudotime.rds"
+  )
+)
+
+# ============================================================
+# 4. Genes
+# ============================================================
+
+genes <- c(
+  
+  # BBB / homeostatic
+  "MFSD2A",
+  "CA4",
+  "ABCG2",
+  "ABCB1",
+  "RGCC",
+  "KDR",
+  "FLT1",
+  "EMCN",
+  "RAMP2",
+  "EDNRB",
+  "BTNL9",
+  "ADGRL4",
+  "PECAM1",
+  "VWF",
+  "CLDN5",
+  
+  # Activated / remodeling
+  "SLC16A1",
+  "MATN3",
+  "CLEC4E",
+  "CCN2",
+  "IGFBP3",
+  "CTGF",
+  "PLVAP",
+  "ESM1",
+  "ANGPT2",
+  "SPARCL1",
+  "VCAM1",
+  "ICAM1",
+  "SELE",
+  "FN1",
+  "COL4A1"
+)
+
+genes_use <- genes[
+  genes %in% rownames(sce)
+]
+
+cat(
+  "Genes available:",
+  length(genes_use),
+  "\n"
+)
+
+print(genes_use)
+
+# ============================================================
+# 5. Lineage 3 cells
+# ============================================================
+
+lineage3_cells <- names(
+  pt3
+)[
+  !is.na(pt3)
+]
+
+pt3_use <- pt3[
+  lineage3_cells
+]
+
+# 按 pseudotime 排序
+ord <- order(
+  pt3_use
+)
+
+lineage3_cells <- lineage3_cells[
+  ord
+]
+
+pt3_use <- pt3_use[
+  ord
+]
+
+cat(
+  "Lineage 3 cells:",
+  length(lineage3_cells),
+  "\n"
+)
+
+# ============================================================
+# 6. Expression matrix
+# ============================================================
+
+expr_mat <- assay(
+  sce,
+  "logcounts"
+)[
+  genes_use,
+  lineage3_cells,
+  drop = FALSE
+]
+
+# ============================================================
+# 7. Gene-wise Z-score
+# ============================================================
+
+expr_z <- t(
+  scale(
+    t(expr_mat)
+  )
+)
+
+expr_z[
+  is.na(expr_z)
+] <- 0
+
+# 限制极端值
+expr_z[
+  expr_z > 2.5
+] <- 2.5
+
+expr_z[
+  expr_z < -2.5
+] <- -2.5
+
+# ============================================================
+# 8. Pseudotime annotation
+# ============================================================
+
+pt_anno <- HeatmapAnnotation(
+  
+  Pseudotime = pt3_use,
+  
+  col = list(
+    Pseudotime = colorRamp2(
+      c(
+        min(pt3_use),
+        median(pt3_use),
+        max(pt3_use)
+      ),
+      c(
+        "#313695",
+        "#FFFFBF",
+        "#D73027"
+      )
+    )
+  ),
+  
+  annotation_name_side = "left",
+  
+  annotation_name_gp = gpar(
+    fontsize = 10,
+    fontface = "bold"
+  ),
+  
+  height = unit(
+    6,
+    "mm"
+  )
+)
+
+# ============================================================
+# 9. Gene state annotation
+# ============================================================
+
+state <- c(
+  rep(
+    "BBB state",
+    15
+  ),
+  rep(
+    "Activated state",
+    15
+  )
+)
+
+names(state) <- genes_use
+
+# ============================================================
+# 10. Row annotation
+# ============================================================
+
+row_anno <- rowAnnotation(
+  
+  `Cell state` = anno_block(
+    
+    gp = gpar(
+      fill = c(
+        "#4575B4",
+        "#D73027"
+      ),
+      col = NA
+    ),
+    
+    labels = c(
+      "BBB state",
+      "Activated state"
+    ),
+    
+    labels_gp = gpar(
+      fontsize = 9,
+      fontface = "bold"
+    )
+  ),
+  
+  width = unit(
+    18,
+    "mm"
+  )
+)
+
+# ============================================================
+# 11. Heatmap
+# ============================================================
+
+ht <- Heatmap(
+  
+  expr_z,
+  
+  name = "Expression\nZ-score",
+  
+  col = colorRamp2(
+    c(
+      -2.5,
+      0,
+      2.5
+    ),
+    c(
+      "#313695",
+      "white",
+      "#D73027"
+    )
+  ),
+  
+  top_annotation = pt_anno,
+  
+  right_annotation = row_anno,
+  
+  cluster_rows = FALSE,
+  
+  cluster_columns = FALSE,
+  
+  show_row_names = TRUE,
+  
+  show_column_names = FALSE,
+  
+  row_names_side = "left",
+  
+  row_names_gp = gpar(
+    fontsize = 9,
+    fontface = "italic"
+  ),
+  
+  row_names_max_width = unit(
+    35,
+    "mm"
+  ),
+  
+  column_title =
+    "BBB state → Activated state",
+  
+  column_title_gp = gpar(
+    fontsize = 13,
+    fontface = "bold"
+  ),
+  
+  heatmap_legend_param = list(
+    title = "Z-score",
+    title_gp = gpar(
+      fontsize = 10,
+      fontface = "bold"
+    ),
+    labels_gp = gpar(
+      fontsize = 9
+    )
+  ),
+  
+  border = TRUE,
+  
+  rect_gp = gpar(
+    col = NA
+  )
+)
+
+# ============================================================
+# 12. Save PDF
+# ============================================================
+draw(
+  ht,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right"
+)
+pdf(
+  file.path(
+    outdir,
+    "Figure_3_pseudotime_30genes_heatmap.pdf"
+  ),
+  width = 9,
+  height = 8
+)
+
+draw(
+  ht,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right"
+)
+
+dev.off()
+
+# ============================================================
+# 13. Save RDS
+# ============================================================
+
+saveRDS(
+  ht,
+  file.path(
+    outdir,
+    "Figure_3_pseudotime_30genes_heatmap.rds"
+  )
+)
+
+# ============================================================
+# 14. Save matrix
+# ============================================================
+
+saveRDS(
+  expr_z,
+  file.path(
+    outdir,
+    "Figure_3_pseudotime_30genes_heatmap_Zscore.rds"
+  )
+)
+
+cat(
+  "\n========================================\n",
+  "Figure 3 heatmap completed\n",
+  "========================================\n",
+  "Genes: ",
+  length(genes_use),
+  "\nCells: ",
+  length(lineage3_cells),
+  "\n"
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# 1. 两个状态
+# ============================================================
+
+row_split <- factor(
+  c(
+    rep("BBB state", 15),
+    rep("Activated state", 15)
+  ),
+  levels = c(
+    "BBB state",
+    "Activated state"
+  )
+)
+
+# ============================================================
+# 2. Heatmap
+# ============================================================
+
+ht <- Heatmap(
+  
+  expr_z,
+  
+  name = "Expression\nZ-score",
+  
+  col = colorRamp2(
+    c(
+      -2.5,
+      0,
+      2.5
+    ),
+    c(
+      "#313695",
+      "white",
+      "#D73027"
+    )
+  ),
+  
+  # 关键：按两个状态分成两个 row slice
+  row_split = row_split,
+  
+  # 不对基因重新聚类
+  cluster_rows = FALSE,
+  
+  cluster_row_slices = FALSE,
+  
+  cluster_columns = FALSE,
+  
+  # 顶部 pseudotime
+  top_annotation = pt_anno,
+  
+  show_row_names = TRUE,
+  
+  show_column_names = FALSE,
+  
+  row_names_side = "left",
+  
+  row_names_gp = gpar(
+    fontsize = 9,
+    fontface = "italic"
+  ),
+  
+  row_names_max_width = unit(
+    35,
+    "mm"
+  ),
+  
+  # slice 标题
+  row_title = c(
+    "BBB state",
+    "Activated state"
+  ),
+  
+  row_title_gp = gpar(
+    fontsize = 10,
+    fontface = "bold"
+  ),
+  
+  row_title_rot = 90,
+  
+  column_title =
+    "BBB state -> Activated state",
+  
+  column_title_gp = gpar(
+    fontsize = 13,
+    fontface = "bold"
+  ),
+  
+  heatmap_legend_param = list(
+    title = "Z-score",
+    title_gp = gpar(
+      fontsize = 10,
+      fontface = "bold"
+    ),
+    labels_gp = gpar(
+      fontsize = 9
+    )
+  ),
+  
+  border = TRUE,
+  
+  rect_gp = gpar(
+    col = NA
+  )
+)
+
+# ============================================================
+# 3. 直接查看
+# ============================================================
+draw(
+  ht,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right"
+)
+
+# ============================================================
+# Top 500 dynamic genes across all 3 Slingshot lineages
+# ============================================================
+
+library(dplyr)
+
+# Slingshot pseudotime
+pt_all <- slingPseudotime(sce)
+
+# 三条 lineage
+pt_L1 <- pt_all[, 1]
+pt_L2 <- pt_all[, 2]
+pt_L3 <- pt_all[, 3]
+
+# 所有基因
+genes_all <- rownames(sce)
+
+# ------------------------------------------------------------
+# 每条 lineage 分别计算 Spearman rho
+# ------------------------------------------------------------
+
+calc_rho <- function(expr, pt) {
+  
+  cells <- names(pt)[!is.na(pt)]
+  
+  expr_use <- expr[, cells, drop = FALSE]
+  pt_use <- pt[cells]
+  
+  apply(
+    expr_use,
+    1,
+    function(x) {
+      suppressWarnings(
+        cor(
+          x,
+          pt_use,
+          method = "spearman"
+        )
+      )
+    }
+  )
+}
+
+# 使用 logcounts
+expr_all <- assay(
+  sce,
+  "logcounts"
+)
+
+rho_L1 <- calc_rho(
+  expr_all,
+  pt_L1
+)
+
+rho_L2 <- calc_rho(
+  expr_all,
+  pt_L2
+)
+
+rho_L3 <- calc_rho(
+  expr_all,
+  pt_L3
+)
+
+
+# ============================================================
+# Combine three lineages
+# ============================================================
+
+rho_df <- data.frame(
+  Gene = genes_all,
+  Lineage1 = rho_L1[genes_all],
+  Lineage2 = rho_L2[genes_all],
+  Lineage3 = rho_L3[genes_all]
+)
+
+rho_df$Dynamic_score <- apply(
+  abs(
+    rho_df[, c(
+      "Lineage1",
+      "Lineage2",
+      "Lineage3"
+    )]
+  ),
+  1,
+  max,
+  na.rm = TRUE
+)
+
+rho_df <- rho_df %>%
+  arrange(
+    desc(Dynamic_score)
+  )
+
+top500_all <- rho_df[
+  1:500,
+]
+
+top500_all
+
+
+
+
+
+
+# ============================================================
+# Figure 3C
+# 综合三条 Slingshot lineage
+# Top 25 up + Top 25 down
+# ============================================================
+
+library(dplyr)
+
+# 1. 排除低信息基因
+exclude_pattern <- paste(
+  c(
+    "^MT-",
+    "^RPL",
+    "^RPS",
+    "^MTRNR",
+    "^HLA-",
+    "^B2M$",
+    "^IGH",
+    "^IGK",
+    "^IGL",
+    "^CCL3$",
+    "^CCL4$",
+    "^S100A9$"
+  ),
+  collapse = "|"
+)
+
+rho_filtered <- rho_df %>%
+  filter(
+    !grepl(exclude_pattern, Gene)
+  )
+
+# 2. 三条 lineage 综合
+rho_filtered$Mean_rho <- rowMeans(
+  rho_filtered[, c(
+    "Lineage1",
+    "Lineage2",
+    "Lineage3"
+  )],
+  na.rm = TRUE
+)
+
+# 3. Top 25 上调
+top25_up <- rho_filtered %>%
+  filter(Mean_rho > 0) %>%
+  arrange(desc(Mean_rho)) %>%
+  slice_head(n = 25)
+
+# 4. Top 25 下调
+top25_down <- rho_filtered %>%
+  filter(Mean_rho < 0) %>%
+  arrange(Mean_rho) %>%
+  slice_head(n = 25)
+
+# 5. 输出
+cat("========== TOP 25 UP ==========\n")
+
+print(
+  top25_up[, c(
+    "Gene",
+    "Lineage1",
+    "Lineage2",
+    "Lineage3",
+    "Mean_rho"
+  )],
+  row.names = FALSE
+)
+
+cat("\n========== TOP 25 DOWN ==========\n")
+
+print(
+  top25_down[, c(
+    "Gene",
+    "Lineage1",
+    "Lineage2",
+    "Lineage3",
+    "Mean_rho"
+  )],
+  row.names = FALSE
+)
+
+
+
+key_genes <- c(
+  "MFSD2A",
+  "CA4",
+  "ABCG2",
+  "ABCB1",
+  "RGCC",
+  "SLC2A1",
+  "SLC3A2",
+  "SLC38A5",
+  "SLC7A5",
+  "SLCO1A2",
+  "SLC16A1",
+  "MATN3",
+  "CLEC4E",
+  "CCN2",
+  "IGFBP3",
+  "CTGF",
+  "PLVAP",
+  "ESM1",
+  "ANGPT2",
+  "SPARCL1",
+  "VCAM1",
+  "ICAM1",
+  "SELE",
+  "FN1",
+  "COL4A1",
+  "CYR61",
+  "THBS1",
+  "MGP",
+  "COL15A1",
+  "MMP2",
+  "SPP1",
+  "LMO2",
+  "KDR",
+  "FLT1",
+  "EMCN",
+  "RAMP2"
+)
+
+rho_filtered %>%
+  filter(Gene %in% key_genes) %>%
+  arrange(desc(Mean_rho)) %>%
+  print(row.names = FALSE)
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# Figure 3C
+# Stable state -> Activated state
+# Pink-blue color scheme
+# ============================================================
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+# 1. Pseudotime
+pt_all <- slingPseudotime(sce)
+
+pt <- apply(
+  pt_all,
+  1,
+  function(x) ifelse(
+    all(is.na(x)),
+    NA,
+    mean(x, na.rm = TRUE)
+  )
+)
+
+keep <- names(pt)[!is.na(pt)]
+pt <- pt[keep]
+
+# 2. 综合三条 lineage
+rho_filtered$Mean_rho <- rowMeans(
+  rho_filtered[, c(
+    "Lineage1",
+    "Lineage2",
+    "Lineage3"
+  )],
+  na.rm = TRUE
+)
+
+# 3. 25 Activated + 25 Stable
+up_genes <- rho_filtered %>%
+  dplyr::filter(Mean_rho > 0) %>%
+  dplyr::arrange(desc(Mean_rho)) %>%
+  dplyr::slice_head(n = 25) %>%
+  dplyr::pull(Gene)
+
+down_genes <- rho_filtered %>%
+  dplyr::filter(Mean_rho < 0) %>%
+  dplyr::arrange(Mean_rho) %>%
+  dplyr::slice_head(n = 25) %>%
+  dplyr::pull(Gene)
+
+genes <- c(
+  up_genes,
+  down_genes
+)
+
+# 4. Expression
+expr <- assay(
+  sce,
+  "logcounts"
+)[genes, keep, drop = FALSE]
+
+# 5. 按 pseudotime 排序
+ord <- order(pt)
+
+expr <- expr[, ord, drop = FALSE]
+pt <- pt[ord]
+
+# 6. Z-score
+expr_z <- t(scale(t(expr)))
+expr_z[is.na(expr_z)] <- 0
+
+# 7. Pseudotime annotation
+pt_anno <- HeatmapAnnotation(
+  Pseudotime = pt,
+  col = list(
+    Pseudotime = colorRamp2(
+      c(
+        min(pt),
+        median(pt),
+        max(pt)
+      ),
+      c(
+        "#4575B4",
+        "#F7C6D5",
+        "#E86A92"
+      )
+    )
+  ),
+  annotation_name_gp = gpar(
+    fontsize = 10,
+    fontface = "bold"
+  )
+)
+
+# 8. 两个状态
+row_split <- factor(
+  c(
+    rep("Activated state", length(up_genes)),
+    rep("Stable state", length(down_genes))
+  ),
+  levels = c(
+    "Activated state",
+    "Stable state"
+  )
+)
+
+# 9. Heatmap
+ht <- Heatmap(
+  expr_z,
+  name = "Z-score",
+  
+  col = colorRamp2(
+    c(
+      -2,
+      0,
+      2
+    ),
+    c(
+      "#4575B4",
+      "#F7F7F7",
+      "#E86A92"
+    )
+  ),
+  
+  row_split = row_split,
+  cluster_rows = FALSE,
+  cluster_row_slices = FALSE,
+  cluster_columns = FALSE,
+  
+  show_column_names = FALSE,
+  show_row_names = TRUE,
+  
+  row_names_side = "left",
+  row_names_gp = gpar(
+    fontsize = 8,
+    fontface = "italic"
+  ),
+  
+  row_names_max_width = unit(
+    35,
+    "mm"
+  ),
+  
+  top_annotation = pt_anno,
+  
+  row_title = c(
+    "Activated state",
+    "Stable state"
+  ),
+  
+  row_title_gp = gpar(
+    fontsize = 10,
+    fontface = "bold"
+  ),
+  
+  row_title_rot = 90,
+  
+  column_title = "Stable state -> Activated state",
+  
+  column_title_gp = gpar(
+    fontsize = 13,
+    fontface = "bold"
+  ),
+  
+  border = TRUE,
+  rect_gp = gpar(col = NA),
+  
+  heatmap_legend_param = list(
+    title = "Expression\nZ-score"
+  )
+)
+
+# 10. 保存
+pdf(
+  "/home/data/t030736/Figure_3/Figure_3C_pseudotime_heatmap_50genes.pdf",
+  width = 8,
+  height = 9
+)
+
+draw(
+  ht,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right"
+)
+
+dev.off()
+
